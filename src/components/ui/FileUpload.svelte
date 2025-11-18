@@ -3,6 +3,9 @@ import { parseGDSII } from "../../lib/gds/GDSParser";
 // biome-ignore lint/correctness/noUnusedImports: Used in template
 import { gdsStore } from "../../stores/gdsStore";
 
+// Debug mode - set to false to reduce console logs
+const DEBUG = false;
+
 // biome-ignore lint/correctness/noUnusedVariables: Used in template
 let isDragging = false;
 // biome-ignore lint/correctness/noUnusedVariables: Used in template
@@ -12,7 +15,7 @@ let fileInputElement: HTMLInputElement;
  * Handle file selection
  */
 async function handleFile(file: File) {
-	console.log("[FileUpload] handleFile called with:", file.name, file.size, "bytes");
+	console.log(`[FileUpload] Loading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
 
 	if (!file.name.toLowerCase().endsWith(".gds") && !file.name.toLowerCase().endsWith(".gdsii")) {
 		console.warn("[FileUpload] Invalid file extension");
@@ -21,25 +24,22 @@ async function handleFile(file: File) {
 	}
 
 	try {
-		console.log("[FileUpload] Starting file load...");
 		gdsStore.setLoading(true, "Reading file...", 0);
 
 		// Read file
-		console.log("[FileUpload] Reading file as ArrayBuffer...");
 		const arrayBuffer = await file.arrayBuffer();
-		console.log("[FileUpload] File read complete, size:", arrayBuffer.byteLength);
+		if (DEBUG) {
+			console.log(`[FileUpload] File read complete: ${arrayBuffer.byteLength} bytes`);
+		}
 
 		// Parse GDSII
 		gdsStore.updateProgress(50, "Parsing GDSII file...");
-		console.log("[FileUpload] Calling parseGDSII...");
 		const document = await parseGDSII(arrayBuffer);
-		console.log("[FileUpload] Parsing complete, document:", document);
 
 		// Update store
 		gdsStore.updateProgress(100, "Complete!");
-		console.log("[FileUpload] Setting document in store...");
 		gdsStore.setDocument(document, file.name);
-		console.log("[FileUpload] File load complete!");
+		console.log("[FileUpload] File loaded successfully");
 	} catch (error) {
 		console.error("[FileUpload] Failed to load GDSII file:", error);
 		gdsStore.setError(

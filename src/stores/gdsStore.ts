@@ -5,6 +5,9 @@
 import { writable } from "svelte/store";
 import type { GDSDocument } from "../types/gds";
 
+// Debug mode - set to false to reduce console logs
+const DEBUG = false;
+
 export interface GDSState {
 	document: GDSDocument | null;
 	isLoading: boolean;
@@ -33,8 +36,9 @@ function createGDSStore() {
 		 * Set the GDS document
 		 */
 		setDocument: (document: GDSDocument, fileName: string) => {
-			console.log("[gdsStore] setDocument called with:", fileName);
-			console.log("[gdsStore] Document:", document);
+			if (DEBUG) {
+				console.log(`[gdsStore] Setting document: ${fileName}`);
+			}
 			update((state) => ({
 				...state,
 				document,
@@ -44,7 +48,6 @@ function createGDSStore() {
 				loadingMessage: "Loaded successfully",
 				error: null,
 			}));
-			console.log("[gdsStore] Store updated with document");
 		},
 
 		/**

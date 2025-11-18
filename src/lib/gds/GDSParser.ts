@@ -14,6 +14,9 @@ import type {
 	Polygon,
 } from "../../types/gds";
 
+// Debug mode - set to false to reduce console logs
+const DEBUG = false;
+
 /**
  * Generate a random color for a layer
  */
@@ -84,27 +87,27 @@ function calculateBoundingBox(points: Point[]): BoundingBox {
  * Parse GDSII file and convert to GDSDocument
  */
 export async function parseGDSII(fileBuffer: ArrayBuffer): Promise<GDSDocument> {
-	console.log("[GDSParser] Starting GDSII parsing...");
-	console.log("[GDSParser] File size:", fileBuffer.byteLength, "bytes");
+	const startTime = performance.now();
+	console.log(
+		`[GDSParser] Parsing GDSII file (${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)...`,
+	);
 
 	// Convert ArrayBuffer to Uint8Array
 	const fileData = new Uint8Array(fileBuffer);
-	console.log("[GDSParser] Converted to Uint8Array");
 
 	// Parse GDSII using JavaScript library
-	console.log("[GDSParser] Calling parseGDS...");
 	const records = Array.from(parseGDS(fileData)) as Array<{ tag: number; data: any }>;
-	console.log("[GDSParser] Parsed", records.length, "records");
+	if (DEBUG) {
+		console.log(`[GDSParser] Parsed ${records.length} records`);
+	}
 
 	// Build document structure from records
-	console.log("[GDSParser] Building GDS document...");
 	const document = buildGDSDocument(records);
-	console.log("[GDSParser] Document built successfully");
-	console.log("[GDSParser] - Library name:", document.name);
-	console.log("[GDSParser] - Cells:", document.cells.size);
-	console.log("[GDSParser] - Layers:", document.layers.size);
-	console.log("[GDSParser] - Top cells:", document.topCells);
-	console.log("[GDSParser] - Bounding box:", document.boundingBox);
+
+	const parseTime = performance.now() - startTime;
+	console.log(
+		`[GDSParser] Parsing complete in ${parseTime.toFixed(0)}ms - ${document.cells.size} cells, ${document.layers.size} layers`,
+	);
 
 	return document;
 }
@@ -113,7 +116,9 @@ export async function parseGDSII(fileBuffer: ArrayBuffer): Promise<GDSDocument> 
  * Build GDSDocument from parsed GDSII records
  */
 function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocument {
-	console.log("[buildGDSDocument] Processing", records.length, "records");
+	if (DEBUG) {
+		console.log(`[buildGDSDocument] Processing ${records.length} records`);
+	}
 
 	const cells = new Map<string, Cell>();
 	const layers = new Map<string, Layer>();
@@ -195,22 +200,8 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 						}
 					}
 
-					// Debug: Log first polygon's data
-					if (polygonCount === 0) {
-						console.log("[buildGDSDocument] First polygon XY data:", data);
-						console.log("[buildGDSDocument] First polygon points:", points);
-					}
-
 					currentPolygon.points = points;
 					currentPolygon.boundingBox = calculateBoundingBox(points);
-
-					// Debug: Log first polygon's bounding box
-					if (polygonCount === 0) {
-						console.log(
-							"[buildGDSDocument] First polygon bounding box:",
-							currentPolygon.boundingBox,
-						);
-					}
 				} else if (currentInstance && Array.isArray(data) && data.length >= 2) {
 					// For instances, XY contains the position
 					// Check if it's nested array format
@@ -290,17 +281,13 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 		}
 	}
 
-	console.log(
-		"[buildGDSDocument] Parsed",
-		polygonCount,
-		"polygons and",
-		instanceCount,
-		"instances",
-	);
-	console.log("[buildGDSDocument] Found", cells.size, "cells");
+	if (DEBUG) {
+		console.log(
+			`[buildGDSDocument] Parsed ${polygonCount} polygons and ${instanceCount} instances in ${cells.size} cells`,
+		);
+	}
 
 	// Calculate bounding boxes for cells
-	console.log("[buildGDSDocument] Calculating cell bounding boxes...");
 	for (const cell of cells.values()) {
 		let minX = Number.POSITIVE_INFINITY;
 		let minY = Number.POSITIVE_INFINITY;
@@ -323,7 +310,6 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 	}
 
 	// Find top cells (cells not referenced by others)
-	console.log("[buildGDSDocument] Finding top cells...");
 	const allCellNames = new Set(cells.keys());
 	const referencedCells = new Set<string>();
 	for (const cell of cells.values()) {
@@ -332,7 +318,6 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 		}
 	}
 	const topCells = Array.from(allCellNames).filter((name) => !referencedCells.has(name));
-	console.log("[buildGDSDocument] Top cells:", topCells);
 
 	// Calculate global bounding box
 	let globalMinX = Number.POSITIVE_INFINITY;

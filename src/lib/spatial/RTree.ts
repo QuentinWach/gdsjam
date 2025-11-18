@@ -12,8 +12,8 @@ export interface RTreeItem {
 	maxX: number;
 	maxY: number;
 	id: string;
-	type: "polygon" | "instance";
-	data: unknown; // Reference to actual polygon or instance
+	type: "polygon" | "instance" | "layer";
+	data: unknown; // Reference to actual polygon, instance, or Graphics object
 }
 
 export class SpatialIndex {

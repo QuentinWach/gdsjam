@@ -4,38 +4,37 @@ import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 // biome-ignore lint/correctness/noUnusedImports: Used in template via $gdsStore
 import { gdsStore } from "../../stores/gdsStore";
 
+// Debug mode - set to false to reduce console logs
+const DEBUG = false;
+
 let canvas: HTMLCanvasElement;
 let renderer: PixiRenderer | null = null;
 
 onMount(async () => {
-	console.log("[ViewerCanvas] onMount called");
+	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
 	if (canvas) {
-		console.log("[ViewerCanvas] Initializing renderer...");
-		renderer = new PixiRenderer(canvas);
+		renderer = new PixiRenderer();
 		await renderer.init(canvas);
-		console.log("[ViewerCanvas] Renderer initialized");
 
 		// If there's already a document loaded, render it
 		if ($gdsStore.document) {
-			console.log("[ViewerCanvas] Document already loaded, rendering...");
 			renderer.renderGDSDocument($gdsStore.document);
 		} else {
 			// Otherwise render test geometry for prototyping
-			console.log("[ViewerCanvas] No document, rendering test geometry");
+			if (DEBUG) console.log("[ViewerCanvas] Rendering test geometry");
 			renderer.renderTestGeometry(1000); // 1K polygons for initial test
 		}
 	}
 });
 
 onDestroy(() => {
-	console.log("[ViewerCanvas] onDestroy called");
+	if (DEBUG) console.log("[ViewerCanvas] Destroying renderer");
 	renderer?.destroy();
 });
 
 // Subscribe to GDS store and render when document changes
-$: if (renderer && $gdsStore.document) {
-	console.log("[ViewerCanvas] Reactive: Document changed, rendering...");
-	console.log("[ViewerCanvas] Document:", $gdsStore.document);
+$: if (renderer?.isReady() && $gdsStore.document) {
+	console.log("[ViewerCanvas] Rendering document:", $gdsStore.document.name);
 	renderer.renderGDSDocument($gdsStore.document);
 }
 </script>

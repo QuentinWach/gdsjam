@@ -4,8 +4,11 @@
  */
 
 import { Application, Container, Graphics, Text } from "pixi.js";
-import type { Cell, GDSDocument, Polygon } from "../../types/gds";
-import { SpatialIndex } from "../spatial/RTree";
+import type { BoundingBox, Cell, GDSDocument, Polygon } from "../../types/gds";
+import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
+
+// Debug mode - set to false to reduce console logs
+const DEBUG = false;
 
 export interface ViewportState {
 	x: number;
@@ -21,6 +24,10 @@ export class PixiRenderer {
 	private lastFrameTime: number;
 	private frameCount: number;
 	private fpsUpdateInterval: number;
+	private allGraphicsItems: RTreeItem[] = [];
+	private isInitialized = false;
+	private maxPolygonsPerRender = 100000; // Limit polygons to prevent OOM
+	private currentRenderDepth = 0; // Current hierarchy depth being rendered
 
 	constructor() {
 		// Initialize Pixi.js application
@@ -47,14 +54,19 @@ export class PixiRenderer {
 	 */
 	async init(canvas: HTMLCanvasElement): Promise<void> {
 		const parentElement = canvas.parentElement;
-		await this.app.init({
+		const initOptions: any = {
 			canvas,
 			background: 0x1a1a1a,
-			resizeTo: parentElement ? parentElement : undefined,
 			antialias: true,
 			autoDensity: true,
 			resolution: window.devicePixelRatio || 1,
-		});
+		};
+
+		if (parentElement) {
+			initOptions.resizeTo = parentElement;
+		}
+
+		await this.app.init(initOptions);
 
 		this.app.stage.addChild(this.mainContainer);
 
@@ -68,6 +80,8 @@ export class PixiRenderer {
 
 		// Enable interactivity
 		this.mainContainer.eventMode = "static";
+
+		this.isInitialized = true;
 		this.setupControls();
 	}
 
@@ -168,53 +182,121 @@ export class PixiRenderer {
 
 	/**
 	 * Update viewport (called after zoom/pan)
+	 * Implements viewport culling - only shows polygons visible in current viewport
 	 */
 	private updateViewport(): void {
-		// TODO: Implement viewport culling using spatial index
+		if (this.allGraphicsItems.length === 0) {
+			return;
+		}
+
+		const viewportBounds = this.getViewportBounds();
+		const visibleItems = this.spatialIndex.query(viewportBounds);
+		const visibleIds = new Set(visibleItems.map((item) => item.id));
+
+		// Update visibility of all graphics items
+		let visibleCount = 0;
+		for (const item of this.allGraphicsItems) {
+			const graphics = item.data as Graphics;
+			const isVisible = visibleIds.has(item.id);
+			graphics.visible = isVisible;
+			if (isVisible) visibleCount++;
+		}
+
+		if (DEBUG) {
+			console.log(
+				`[PixiRenderer] Viewport culling: ${visibleCount}/${this.allGraphicsItems.length} polygons visible`,
+			);
+		}
 	}
 
 	/**
-	 * Render GDS document
+	 * Get current viewport bounds in world coordinates
+	 */
+	private getViewportBounds(): BoundingBox {
+		const scale = this.mainContainer.scale.x;
+		const x = -this.mainContainer.x / scale;
+		const y = -this.mainContainer.y / scale;
+		const width = this.app.screen.width / scale;
+		const height = this.app.screen.height / scale;
+
+		return {
+			minX: x,
+			minY: y,
+			maxX: x + width,
+			maxY: y + height,
+		};
+	}
+
+	/**
+	 * Render GDS document with LOD (Level of Detail) to prevent OOM
 	 */
 	renderGDSDocument(document: GDSDocument): void {
-		console.log("[PixiRenderer] renderGDSDocument called");
-		console.log("[PixiRenderer] Document:", document);
-		console.log("[PixiRenderer] Top cells:", document.topCells);
+		console.log("[PixiRenderer] Rendering GDS document:", document.name);
+		console.log(
+			`[PixiRenderer] ${document.cells.size} cells, ${document.layers.size} layers, ${document.topCells.length} top cells`,
+		);
 
 		this.clear();
-		console.log("[PixiRenderer] Cleared previous content");
+		this.currentDocument = document;
 
-		// Render top cells (cells not referenced by others)
-		let renderedCells = 0;
+		const startTime = performance.now();
+
+		// Start with shallow rendering (depth 0 = only top cell polygons, no instances)
+		this.currentRenderDepth = 0;
+		let totalPolygons = 0;
+		let polygonBudget = this.maxPolygonsPerRender;
+
 		for (const topCellName of document.topCells) {
-			console.log("[PixiRenderer] Rendering top cell:", topCellName);
 			const cell = document.cells.get(topCellName);
 			if (cell) {
-				console.log(
-					"[PixiRenderer] Cell has",
-					cell.polygons.length,
-					"polygons and",
-					cell.instances.length,
-					"instances",
+				if (DEBUG) {
+					console.log(
+						`[PixiRenderer] Rendering top cell: ${topCellName} (${cell.polygons.length} polygons, ${cell.instances.length} instances)`,
+					);
+				}
+				const rendered = this.renderCellGeometry(
+					cell,
+					document,
+					0,
+					0,
+					0,
+					false,
+					1,
+					this.currentRenderDepth,
+					polygonBudget,
 				);
-				this.renderCell(cell, document, 0, 0, 0, false, 1);
-				renderedCells++;
+				totalPolygons += rendered;
+				polygonBudget -= rendered;
+
+				if (polygonBudget <= 0) {
+					console.warn(
+						`[PixiRenderer] Polygon budget exhausted (${this.maxPolygonsPerRender}), stopping render`,
+					);
+					break;
+				}
 			} else {
 				console.warn("[PixiRenderer] Top cell not found:", topCellName);
 			}
 		}
 
-		console.log("[PixiRenderer] Rendered", renderedCells, "top cells");
-		console.log("[PixiRenderer] Main container children:", this.mainContainer.children.length);
+		const renderTime = performance.now() - startTime;
+		console.log(
+			`[PixiRenderer] Rendered ${totalPolygons} polygons in ${renderTime.toFixed(0)}ms (${this.allGraphicsItems.length} Graphics objects, depth=${this.currentRenderDepth})`,
+		);
 
 		this.fitToView();
-		console.log("[PixiRenderer] Fit to view complete");
+		this.updateViewport(); // Initial viewport culling
+		console.log("[PixiRenderer] Initial render complete");
 	}
 
 	/**
-	 * Render a cell with transformations
+	 * Render cell geometry with transformations (batched by layer)
+	 * Returns number of polygons rendered (including instances)
+	 *
+	 * @param maxDepth - Maximum hierarchy depth to render (0 = only this cell's polygons)
+	 * @param polygonBudget - Maximum polygons to render (stops early if exceeded)
 	 */
-	private renderCell(
+	private renderCellGeometry(
 		cell: Cell,
 		document: GDSDocument,
 		x: number,
@@ -222,88 +304,140 @@ export class PixiRenderer {
 		rotation: number,
 		mirror: boolean,
 		magnification: number,
-	): void {
-		console.log(
-			"[PixiRenderer] renderCell:",
-			cell.name,
-			"at",
-			x,
-			y,
-			"polygons:",
-			cell.polygons.length,
-		);
+		maxDepth: number,
+		polygonBudget: number,
+	): number {
+		if (DEBUG) {
+			console.log(
+				`[PixiRenderer] renderCellGeometry: ${cell.name} at (${x}, ${y}) depth=${maxDepth} budget=${polygonBudget}`,
+			);
+		}
+
+		// Stop if budget exhausted
+		if (polygonBudget <= 0) {
+			return 0;
+		}
 
 		// Create container for this cell
 		const cellContainer = new Container();
 		cellContainer.x = x;
 		cellContainer.y = y;
-		cellContainer.rotation = (rotation * Math.PI) / 180; // Convert to radians
+		cellContainer.rotation = (rotation * Math.PI) / 180;
 		cellContainer.scale.x = magnification * (mirror ? -1 : 1);
 		cellContainer.scale.y = magnification;
 
-		// Render polygons
+		// Batch polygons by layer for efficient rendering
+		const layerGraphics = new Map<string, Graphics>();
+		const layerBounds = new Map<string, BoundingBox>();
+
 		let renderedPolygons = 0;
 		for (const polygon of cell.polygons) {
-			const layer = document.layers.get(`${polygon.layer}:${polygon.datatype}`);
+			const layerKey = `${polygon.layer}:${polygon.datatype}`;
+			const layer = document.layers.get(layerKey);
 			if (!layer || !layer.visible) continue;
 
-			const graphics = this.renderPolygon(polygon, layer.color);
-			cellContainer.addChild(graphics);
+			// Get or create Graphics object for this layer
+			let graphics = layerGraphics.get(layerKey);
+			if (!graphics) {
+				graphics = new Graphics();
+				layerGraphics.set(layerKey, graphics);
+				cellContainer.addChild(graphics);
+
+				// Initialize bounds for this layer
+				layerBounds.set(layerKey, {
+					minX: Number.POSITIVE_INFINITY,
+					minY: Number.POSITIVE_INFINITY,
+					maxX: Number.NEGATIVE_INFINITY,
+					maxY: Number.NEGATIVE_INFINITY,
+				});
+			}
+
+			// Add polygon to batched graphics
+			this.addPolygonToGraphics(graphics, polygon, layer.color);
 			renderedPolygons++;
 
-			// Add to spatial index (with transformations applied)
-			this.spatialIndex.insert({
-				minX: polygon.boundingBox.minX + x,
-				minY: polygon.boundingBox.minY + y,
-				maxX: polygon.boundingBox.maxX + x,
-				maxY: polygon.boundingBox.maxY + y,
-				id: polygon.id,
-				type: "polygon",
-				data: graphics,
-			});
+			// Update layer bounds (avoid calling getBounds() which is expensive)
+			const bounds = layerBounds.get(layerKey)!;
+			bounds.minX = Math.min(bounds.minX, polygon.boundingBox.minX);
+			bounds.minY = Math.min(bounds.minY, polygon.boundingBox.minY);
+			bounds.maxX = Math.max(bounds.maxX, polygon.boundingBox.maxX);
+			bounds.maxY = Math.max(bounds.maxY, polygon.boundingBox.maxY);
 		}
-		console.log("[PixiRenderer] Rendered", renderedPolygons, "polygons for cell", cell.name);
 
-		// Render instances (recursive)
-		for (const instance of cell.instances) {
-			const refCell = document.cells.get(instance.cellRef);
-			if (refCell) {
-				this.renderCell(
-					refCell,
-					document,
-					instance.x,
-					instance.y,
-					instance.rotation,
-					instance.mirror,
-					instance.magnification,
-				);
+		// Add Graphics objects to spatial index (one per layer)
+		// DON'T call graphics.getBounds() - it's too expensive for large files
+		for (const [layerKey, graphics] of layerGraphics) {
+			const bounds = layerBounds.get(layerKey)!;
+			const item: RTreeItem = {
+				minX: bounds.minX + x,
+				minY: bounds.minY + y,
+				maxX: bounds.maxX + x,
+				maxY: bounds.maxY + y,
+				id: `${cell.name}_${layerKey}_${x}_${y}`,
+				type: "layer",
+				data: graphics,
+			};
+			this.spatialIndex.insert(item);
+			this.allGraphicsItems.push(item);
+		}
+
+		if (DEBUG && renderedPolygons > 0) {
+			console.log(
+				`[PixiRenderer] Rendered ${renderedPolygons} polygons in ${layerGraphics.size} layer batches for cell ${cell.name}`,
+			);
+		}
+
+		// Render instances (recursive) only if we have depth budget
+		let totalPolygons = renderedPolygons;
+		let remainingBudget = polygonBudget - renderedPolygons;
+
+		if (maxDepth > 0 && remainingBudget > 0) {
+			for (const instance of cell.instances) {
+				if (remainingBudget <= 0) break;
+
+				const refCell = document.cells.get(instance.cellRef);
+				if (refCell) {
+					const rendered = this.renderCellGeometry(
+						refCell,
+						document,
+						x + instance.x,
+						y + instance.y,
+						rotation + instance.rotation,
+						mirror !== instance.mirror,
+						magnification * instance.magnification,
+						maxDepth - 1, // Decrease depth for child instances
+						remainingBudget,
+					);
+					totalPolygons += rendered;
+					remainingBudget -= rendered;
+				}
 			}
 		}
 
 		this.mainContainer.addChild(cellContainer);
+		return totalPolygons;
 	}
 
 	/**
-	 * Render a single polygon
+	 * Add a polygon to an existing Graphics object (for batched rendering)
 	 */
-	private renderPolygon(polygon: Polygon, colorHex: string): Graphics {
-		const graphics = new Graphics();
-
+	private addPolygonToGraphics(graphics: Graphics, polygon: Polygon, colorHex: string): void {
 		// Convert hex color to number
 		const color = Number.parseInt(colorHex.replace("#", ""), 16);
 
 		// Draw polygon
-		if (polygon.points.length > 0) {
+		if (polygon.points.length > 0 && polygon.points[0]) {
 			graphics.moveTo(polygon.points[0].x, polygon.points[0].y);
 			for (let i = 1; i < polygon.points.length; i++) {
-				graphics.lineTo(polygon.points[i].x, polygon.points[i].y);
+				const point = polygon.points[i];
+				if (point) {
+					graphics.lineTo(point.x, point.y);
+				}
 			}
 			graphics.closePath();
 			graphics.fill({ color, alpha: 0.7 });
 			graphics.stroke({ color, width: 0.5, alpha: 0.9 });
 		}
-
-		return graphics;
 	}
 
 	/**
@@ -349,6 +483,11 @@ export class PixiRenderer {
 	 * Fit viewport to show all geometry
 	 */
 	fitToView(): void {
+		if (!this.isInitialized || !this.app.screen) {
+			console.warn("[PixiRenderer] Cannot fit to view - renderer not initialized");
+			return;
+		}
+
 		const bounds = this.mainContainer.getBounds();
 
 		if (bounds.width === 0 || bounds.height === 0) {
@@ -372,6 +511,15 @@ export class PixiRenderer {
 	clear(): void {
 		this.mainContainer.removeChildren();
 		this.spatialIndex.clear();
+		this.allGraphicsItems = [];
+		this.currentDocument = null;
+	}
+
+	/**
+	 * Check if renderer is initialized and ready to render
+	 */
+	isReady(): boolean {
+		return this.isInitialized;
 	}
 
 	/**
