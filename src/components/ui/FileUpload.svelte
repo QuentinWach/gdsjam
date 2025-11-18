@@ -2,7 +2,7 @@
 import { parseGDSII } from "../../lib/gds/GDSParser";
 import { gdsStore } from "../../stores/gdsStore";
 
-let _isDragging = false;
+let isDragging = false;
 let fileInputElement: HTMLInputElement;
 
 /**
@@ -48,7 +48,7 @@ async function handleFile(file: File) {
 /**
  * Handle file input change
  */
-function _handleFileInput(event: Event) {
+function handleFileInput(event: Event) {
 	const target = event.target as HTMLInputElement;
 	const file = target.files?.[0];
 	if (file) {
@@ -59,24 +59,24 @@ function _handleFileInput(event: Event) {
 /**
  * Handle drag over
  */
-function _handleDragOver(event: DragEvent) {
+function handleDragOver(event: DragEvent) {
 	event.preventDefault();
-	_isDragging = true;
+	isDragging = true;
 }
 
 /**
  * Handle drag leave
  */
-function _handleDragLeave() {
-	_isDragging = false;
+function handleDragLeave() {
+	isDragging = false;
 }
 
 /**
  * Handle drop
  */
-function _handleDrop(event: DragEvent) {
+function handleDrop(event: DragEvent) {
 	event.preventDefault();
-	_isDragging = false;
+	isDragging = false;
 
 	const file = event.dataTransfer?.files[0];
 	if (file) {
@@ -87,7 +87,7 @@ function _handleDrop(event: DragEvent) {
 /**
  * Trigger file input click
  */
-function _triggerFileInput() {
+function triggerFileInput() {
 	fileInputElement.click();
 }
 </script>
