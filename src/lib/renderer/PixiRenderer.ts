@@ -23,6 +23,7 @@ export class PixiRenderer {
 	private spatialIndex: SpatialIndex;
 	private fpsText: Text;
 	private scaleBarContainer: Container;
+	private coordsText: Text;
 	private lastFrameTime: number;
 	private frameCount: number;
 	private fpsUpdateInterval: number;
@@ -32,6 +33,7 @@ export class PixiRenderer {
 	private currentRenderDepth = 0;
 	private gridVisible = true;
 	private documentUnits = { database: 1e-9, user: 1e-6 };
+	private viewportUpdateTimeout: number | null = null;
 
 	constructor() {
 		this.app = new Application();
@@ -49,6 +51,15 @@ export class PixiRenderer {
 				fontFamily: "monospace",
 				fontSize: 14,
 				fill: 0x00ff00,
+			},
+		});
+
+		this.coordsText = new Text({
+			text: "X: 0.00 µm, Y: 0.00 µm",
+			style: {
+				fontFamily: "monospace",
+				fontSize: 12,
+				fill: 0xcccccc,
 			},
 		});
 	}
@@ -87,6 +98,10 @@ export class PixiRenderer {
 		this.app.stage.addChild(this.fpsText);
 		this.app.stage.addChild(this.scaleBarContainer);
 
+		this.coordsText.x = this.app.screen.width - 200;
+		this.coordsText.y = this.app.screen.height - 30;
+		this.app.stage.addChild(this.coordsText);
+
 		this.app.ticker.add(this.onTick.bind(this));
 		this.mainContainer.eventMode = "static";
 
@@ -113,6 +128,10 @@ export class PixiRenderer {
 
 		// Update FPS text position if window resized
 		this.fpsText.x = this.app.screen.width - 80;
+
+		// Update coords text position if window resized
+		this.coordsText.x = this.app.screen.width - 200;
+		this.coordsText.y = this.app.screen.height - 30;
 	}
 
 	/**
@@ -158,6 +177,60 @@ export class PixiRenderer {
 				isSpacePressed = true;
 				e.preventDefault();
 			}
+
+			// Arrow keys for panning
+			const panStep = 50; // pixels
+			if (e.code === "ArrowUp") {
+				this.mainContainer.y += panStep;
+				this.updateViewport();
+				this.updateGrid();
+				this.updateScaleBar();
+				e.preventDefault();
+			} else if (e.code === "ArrowDown") {
+				this.mainContainer.y -= panStep;
+				this.updateViewport();
+				this.updateGrid();
+				this.updateScaleBar();
+				e.preventDefault();
+			} else if (e.code === "ArrowLeft") {
+				this.mainContainer.x += panStep;
+				this.updateViewport();
+				this.updateGrid();
+				this.updateScaleBar();
+				e.preventDefault();
+			} else if (e.code === "ArrowRight") {
+				this.mainContainer.x -= panStep;
+				this.updateViewport();
+				this.updateGrid();
+				this.updateScaleBar();
+				e.preventDefault();
+			}
+
+			// Enter for zoom in, Shift+Enter for zoom out
+			if (e.code === "Enter") {
+				const zoomFactor = e.shiftKey ? 0.9 : 1.1;
+				const centerX = this.app.screen.width / 2;
+				const centerY = this.app.screen.height / 2;
+
+				const worldPos = {
+					x: (centerX - this.mainContainer.x) / this.mainContainer.scale.x,
+					y: (centerY - this.mainContainer.y) / this.mainContainer.scale.y,
+				};
+
+				// Preserve Y-axis flip while zooming
+				const currentYSign = Math.sign(this.mainContainer.scale.y);
+				this.mainContainer.scale.x *= zoomFactor;
+				this.mainContainer.scale.y =
+					Math.abs(this.mainContainer.scale.y) * zoomFactor * currentYSign;
+
+				this.mainContainer.x = centerX - worldPos.x * this.mainContainer.scale.x;
+				this.mainContainer.y = centerY - worldPos.y * this.mainContainer.scale.y;
+
+				this.updateViewport();
+				this.updateGrid();
+				this.updateScaleBar();
+				e.preventDefault();
+			}
 		});
 
 		window.addEventListener("keyup", (e) => {
@@ -195,13 +268,47 @@ export class PixiRenderer {
 		window.addEventListener("mouseup", () => {
 			isPanning = false;
 		});
+
+		// Track mouse position for coordinates display
+		this.app.canvas.addEventListener("mousemove", (e) => {
+			const mouseX = e.offsetX;
+			const mouseY = e.offsetY;
+
+			// Convert screen coordinates to world coordinates
+			const worldX = (mouseX - this.mainContainer.x) / this.mainContainer.scale.x;
+			const worldY = (mouseY - this.mainContainer.y) / this.mainContainer.scale.y;
+
+			// Convert to micrometers with nm precision (3 decimal places)
+			const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
+			const worldXMicrometers = worldX * dbToUserUnits;
+			const worldYMicrometers = worldY * dbToUserUnits;
+
+			this.coordsText.text = `X: ${worldXMicrometers.toFixed(3)} µm, Y: ${worldYMicrometers.toFixed(3)} µm`;
+		});
 	}
 
 	/**
 	 * Update viewport (called after zoom/pan)
 	 * Implements viewport culling - only shows polygons visible in current viewport
+	 * Debounced to prevent performance issues during continuous panning
 	 */
 	private updateViewport(): void {
+		// Clear any pending viewport update
+		if (this.viewportUpdateTimeout !== null) {
+			clearTimeout(this.viewportUpdateTimeout);
+		}
+
+		// Debounce viewport culling updates - only update after 100ms of no movement
+		this.viewportUpdateTimeout = window.setTimeout(() => {
+			this.performViewportUpdate();
+			this.viewportUpdateTimeout = null;
+		}, 100);
+	}
+
+	/**
+	 * Perform the actual viewport culling update
+	 */
+	private performViewportUpdate(): void {
 		if (this.allGraphicsItems.length === 0) {
 			return;
 		}
