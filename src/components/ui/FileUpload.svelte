@@ -1,14 +1,10 @@
 <script lang="ts">
+import { DEBUG } from "../../lib/config";
 import { parseGDSII } from "../../lib/gds/GDSParser";
-// biome-ignore lint/correctness/noUnusedImports: Used in template
 import { gdsStore } from "../../stores/gdsStore";
 
-// Debug mode - set to false to reduce console logs
-const DEBUG = false;
-
-// biome-ignore lint/correctness/noUnusedVariables: Used in template
+// biome-ignore lint/correctness/noUnusedVariables: Used in Svelte class binding
 let isDragging = false;
-// biome-ignore lint/correctness/noUnusedVariables: Used in template
 let fileInputElement: HTMLInputElement;
 
 /**

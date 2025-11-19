@@ -1,11 +1,9 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
+import { DEBUG } from "../../lib/config";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 // biome-ignore lint/correctness/noUnusedImports: Used in template via $gdsStore
 import { gdsStore } from "../../stores/gdsStore";
-
-// Debug mode - set to false to reduce console logs
-const DEBUG = false;
 
 let canvas: HTMLCanvasElement;
 let renderer: PixiRenderer | null = null;

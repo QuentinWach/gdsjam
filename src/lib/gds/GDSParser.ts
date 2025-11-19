@@ -13,9 +13,7 @@ import type {
 	Point,
 	Polygon,
 } from "../../types/gds";
-
-// Debug mode - set to false to reduce console logs
-const DEBUG = false;
+import { DEBUG } from "../config";
 
 /**
  * Generate a random color for a layer
@@ -88,14 +86,17 @@ function calculateBoundingBox(points: Point[]): BoundingBox {
  */
 export async function parseGDSII(fileBuffer: ArrayBuffer): Promise<GDSDocument> {
 	const startTime = performance.now();
-	console.log(
-		`[GDSParser] Parsing GDSII file (${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)...`,
-	);
+	if (DEBUG) {
+		console.log(
+			`[GDSParser] Parsing GDSII file (${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)...`,
+		);
+	}
 
 	// Convert ArrayBuffer to Uint8Array
 	const fileData = new Uint8Array(fileBuffer);
 
 	// Parse GDSII using JavaScript library
+	// biome-ignore lint/suspicious/noExplicitAny: External library returns unknown data types
 	const records = Array.from(parseGDS(fileData)) as Array<{ tag: number; data: any }>;
 	if (DEBUG) {
 		console.log(`[GDSParser] Parsed ${records.length} records`);
@@ -105,9 +106,11 @@ export async function parseGDSII(fileBuffer: ArrayBuffer): Promise<GDSDocument> 
 	const document = buildGDSDocument(records);
 
 	const parseTime = performance.now() - startTime;
-	console.log(
-		`[GDSParser] Parsing complete in ${parseTime.toFixed(0)}ms - ${document.cells.size} cells, ${document.layers.size} layers`,
-	);
+	if (DEBUG) {
+		console.log(
+			`[GDSParser] Parsing complete in ${parseTime.toFixed(0)}ms - ${document.cells.size} cells, ${document.layers.size} layers`,
+		);
+	}
 
 	return document;
 }
@@ -115,6 +118,7 @@ export async function parseGDSII(fileBuffer: ArrayBuffer): Promise<GDSDocument> 
 /**
  * Build GDSDocument from parsed GDSII records
  */
+// biome-ignore lint/suspicious/noExplicitAny: GDSII records have dynamic data types
 function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocument {
 	if (DEBUG) {
 		console.log(`[buildGDSDocument] Processing ${records.length} records`);
@@ -225,9 +229,12 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 					const layerKey = `${currentPolygon.layer}:${currentPolygon.datatype}`;
 					if (!layers.has(layerKey)) {
 						layers.set(layerKey, {
+							// biome-ignore lint/style/noNonNullAssertion: Layer/datatype checked by parser
 							layer: currentPolygon.layer!,
+							// biome-ignore lint/style/noNonNullAssertion: Layer/datatype checked by parser
 							datatype: currentPolygon.datatype!,
 							name: `Layer ${currentPolygon.layer}/${currentPolygon.datatype}`,
+							// biome-ignore lint/style/noNonNullAssertion: Layer/datatype checked by parser
 							color: generateLayerColor(currentPolygon.layer!, currentPolygon.datatype!),
 							visible: true,
 						});

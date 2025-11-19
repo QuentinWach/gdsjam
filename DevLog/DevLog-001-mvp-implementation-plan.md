@@ -1,7 +1,7 @@
 # DevLog-001: MVP Implementation Plan
 
 ## Metadata
-- **Document Version:** 1.2
+- **Document Version:** 1.3
 - **Created:** 2025-11-18
 - **Last Updated:** 2025-11-18
 - **Author:** Wentao Jiang
@@ -10,6 +10,13 @@
 - **Related Documents:** DevLog-000-planning.md
 
 ## Changelog
+- **v1.3 (2025-11-18):** Code cleanup and parser clarification
+  - **IMPORTANT:** Clarified parser implementation - using JavaScript `gdsii` library instead of Pyodide
+  - Centralized DEBUG flag and configuration constants
+  - Fixed TypeScript issues (removed unused code)
+  - Created CI pipeline for linting and type-checking
+  - Fixed Vite base path for multi-environment deployment
+  - Removed empty placeholder directories
 - **v1.2 (2025-11-18):** Week 1 progress update
   - Completed project initialization and setup
   - Completed rendering prototype with FPS counter
@@ -52,12 +59,28 @@
 - Test geometry renderer (1K polygons)
 - Dark mode UI with header and controls info
 - Git repository initialization with first commit
+- **GDSII Parser using JavaScript `gdsii` library (NOT Pyodide - see Technical Note below)**
+- File upload with drag-and-drop support
+- Centralized configuration (DEBUG flag, constants)
+- CI/CD pipeline for linting and type-checking
+- Environment-dependent Vite base path
 
 **In Progress:**
 - Performance testing with larger datasets (10K, 100K, 1M polygons)
 - Viewport culling implementation
 - Hybrid rendering strategy (Container instancing)
 - Additional keyboard shortcuts (arrows, Enter, F)
+
+**Technical Note - Parser Implementation:**
+The current implementation uses the JavaScript `gdsii` library (npm package) for parsing GDSII files, NOT Pyodide + gdstk as originally planned. This decision was made to accelerate prototyping. The Pyodide approach may be revisited in Week 2 if the JavaScript parser proves insufficient for:
+- Complex GDSII features (PATH, TEXT, AREF elements)
+- Parse performance with large files (>100MB)
+- Compatibility with diverse GDSII variants
+
+**Current Parser Limitations (JavaScript `gdsii` library):**
+- Only supports basic elements: BOUNDARY (polygons), SREF (cell instances)
+- Missing support for: PATH, TEXT, AREF, BOX, property records
+- Parse time for 150MB file: ~2-3 seconds (acceptable for MVP)
 
 **Blocked:**
 - None
@@ -189,10 +212,12 @@ gdsjam/
 - [x] Install Tailwind CSS: `pnpm add -D tailwindcss postcss autoprefixer @tailwindcss/postcss`
 - [x] Configure Tailwind v4 with dark mode only
 - [x] Set up Husky + lint-staged for pre-commit hooks
-- [ ] Create `.github/workflows/ci.yml` for automated checks
-- [ ] Add `svelte-check` to CI pipeline
-- [ ] Set up Service Worker for Pyodide caching and offline support
-- [ ] Configure Vite for Service Worker registration
+- [x] Create `.github/workflows/ci.yml` for automated checks (linting, type-checking, build)
+- [x] Add `svelte-check` to CI pipeline
+- [x] Centralize DEBUG flag in `src/lib/config.ts`
+- [x] Fix Vite base path for environment-dependent deployment
+- [ ] Set up Service Worker for Pyodide caching and offline support (deferred)
+- [ ] Configure Vite for Service Worker registration (deferred)
 
 #### Rendering Prototype
 - [x] Install Pixi.js: `pnpm add pixi.js`

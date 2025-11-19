@@ -5,10 +5,8 @@
 
 import { Application, Container, Graphics, Text } from "pixi.js";
 import type { BoundingBox, Cell, GDSDocument, Polygon } from "../../types/gds";
+import { DEBUG, FPS_UPDATE_INTERVAL, MAX_POLYGONS_PER_RENDER } from "../config";
 import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
-
-// Debug mode - set to false to reduce console logs
-const DEBUG = false;
 
 export interface ViewportState {
 	x: number;
@@ -26,7 +24,7 @@ export class PixiRenderer {
 	private fpsUpdateInterval: number;
 	private allGraphicsItems: RTreeItem[] = [];
 	private isInitialized = false;
-	private maxPolygonsPerRender = 100000; // Limit polygons to prevent OOM
+	private maxPolygonsPerRender = MAX_POLYGONS_PER_RENDER;
 	private currentRenderDepth = 0; // Current hierarchy depth being rendered
 
 	constructor() {
@@ -36,7 +34,7 @@ export class PixiRenderer {
 		this.spatialIndex = new SpatialIndex();
 		this.lastFrameTime = performance.now();
 		this.frameCount = 0;
-		this.fpsUpdateInterval = 500; // Update FPS every 500ms
+		this.fpsUpdateInterval = FPS_UPDATE_INTERVAL;
 
 		// FPS counter text (top-right corner)
 		this.fpsText = new Text({
@@ -54,6 +52,7 @@ export class PixiRenderer {
 	 */
 	async init(canvas: HTMLCanvasElement): Promise<void> {
 		const parentElement = canvas.parentElement;
+		// biome-ignore lint/suspicious/noExplicitAny: Pixi.js Application init options are complex
 		const initOptions: any = {
 			canvas,
 			background: 0x1a1a1a,
@@ -237,7 +236,6 @@ export class PixiRenderer {
 		);
 
 		this.clear();
-		this.currentDocument = document;
 
 		const startTime = performance.now();
 
@@ -357,6 +355,7 @@ export class PixiRenderer {
 			renderedPolygons++;
 
 			// Update layer bounds (avoid calling getBounds() which is expensive)
+			// biome-ignore lint/style/noNonNullAssertion: Bounds initialized earlier in loop
 			const bounds = layerBounds.get(layerKey)!;
 			bounds.minX = Math.min(bounds.minX, polygon.boundingBox.minX);
 			bounds.minY = Math.min(bounds.minY, polygon.boundingBox.minY);
@@ -367,6 +366,7 @@ export class PixiRenderer {
 		// Add Graphics objects to spatial index (one per layer)
 		// DON'T call graphics.getBounds() - it's too expensive for large files
 		for (const [layerKey, graphics] of layerGraphics) {
+			// biome-ignore lint/style/noNonNullAssertion: Bounds exist for all layers in map
 			const bounds = layerBounds.get(layerKey)!;
 			const item: RTreeItem = {
 				minX: bounds.minX + x,
@@ -512,7 +512,6 @@ export class PixiRenderer {
 		this.mainContainer.removeChildren();
 		this.spatialIndex.clear();
 		this.allGraphicsItems = [];
-		this.currentDocument = null;
 	}
 
 	/**

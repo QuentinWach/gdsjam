@@ -3,10 +3,8 @@
  */
 
 import { writable } from "svelte/store";
+import { DEBUG } from "../lib/config";
 import type { GDSDocument } from "../types/gds";
-
-// Debug mode - set to false to reduce console logs
-const DEBUG = false;
 
 export interface GDSState {
 	document: GDSDocument | null;

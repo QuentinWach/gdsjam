@@ -1,8 +1,10 @@
 <script lang="ts">
-	import ViewerCanvas from './components/viewer/ViewerCanvas.svelte';
-	import FileUpload from './components/ui/FileUpload.svelte';
-	// biome-ignore lint/correctness/noUnusedImports: Used in template via $gdsStore
-	import { gdsStore } from './stores/gdsStore';
+// biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
+import FileUpload from "./components/ui/FileUpload.svelte";
+// biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
+import ViewerCanvas from "./components/viewer/ViewerCanvas.svelte";
+// biome-ignore lint/correctness/noUnusedImports: Used in template via $gdsStore
+import { gdsStore } from "./stores/gdsStore";
 </script>
 
 <main class="app-main">

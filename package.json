@@ -22,7 +22,6 @@
     "@tsconfig/svelte": "^5.0.5",
     "@types/node": "^24.10.0",
     "@types/rbush": "^4.0.0",
-    "autoprefixer": "^10.4.22",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.6",
     "postcss": "^8.5.6",
@@ -35,11 +34,7 @@
   },
   "dependencies": {
     "gdsii": "^0.1.0",
-    "nanoid": "^5.1.6",
     "pixi.js": "^8.14.1",
-    "pyodide": "^0.29.0",
-    "rbush": "^4.0.1",
-    "y-webrtc": "^10.3.0",
-    "yjs": "^13.6.27"
+    "rbush": "^4.0.1"
   }
 }
