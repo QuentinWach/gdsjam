@@ -14,29 +14,35 @@ export interface ViewportState {
 	scale: number;
 }
 
+export type RenderProgressCallback = (progress: number, message: string) => void;
+
 export class PixiRenderer {
 	private app: Application;
 	private mainContainer: Container;
+	private gridContainer: Container;
 	private spatialIndex: SpatialIndex;
 	private fpsText: Text;
+	private scaleBarContainer: Container;
 	private lastFrameTime: number;
 	private frameCount: number;
 	private fpsUpdateInterval: number;
 	private allGraphicsItems: RTreeItem[] = [];
 	private isInitialized = false;
 	private maxPolygonsPerRender = MAX_POLYGONS_PER_RENDER;
-	private currentRenderDepth = 0; // Current hierarchy depth being rendered
+	private currentRenderDepth = 0;
+	private gridVisible = true;
+	private documentUnits = { database: 1e-9, user: 1e-6 };
 
 	constructor() {
-		// Initialize Pixi.js application
 		this.app = new Application();
 		this.mainContainer = new Container();
+		this.gridContainer = new Container();
+		this.scaleBarContainer = new Container();
 		this.spatialIndex = new SpatialIndex();
 		this.lastFrameTime = performance.now();
 		this.frameCount = 0;
 		this.fpsUpdateInterval = FPS_UPDATE_INTERVAL;
 
-		// FPS counter text (top-right corner)
 		this.fpsText = new Text({
 			text: "FPS: 0",
 			style: {
@@ -67,21 +73,27 @@ export class PixiRenderer {
 
 		await this.app.init(initOptions);
 
+		// Add containers in order: grid, main content, UI overlays
+		this.app.stage.addChild(this.gridContainer);
 		this.app.stage.addChild(this.mainContainer);
 
-		// Position FPS counter at top-right
+		// Flip Y-axis to match GDSII coordinate system
+		this.mainContainer.scale.y = -1;
+		this.gridContainer.scale.y = -1;
+
+		// Add UI overlays
 		this.fpsText.x = this.app.screen.width - 80;
 		this.fpsText.y = 10;
 		this.app.stage.addChild(this.fpsText);
+		this.app.stage.addChild(this.scaleBarContainer);
 
-		// Start render loop
 		this.app.ticker.add(this.onTick.bind(this));
-
-		// Enable interactivity
 		this.mainContainer.eventMode = "static";
 
 		this.isInitialized = true;
 		this.setupControls();
+		this.updateGrid();
+		this.updateScaleBar();
 	}
 
 	/**
@@ -122,13 +134,17 @@ export class PixiRenderer {
 				y: (mouseY - this.mainContainer.y) / this.mainContainer.scale.y,
 			};
 
+			// Preserve Y-axis flip while zooming
+			const currentYSign = Math.sign(this.mainContainer.scale.y);
 			this.mainContainer.scale.x *= zoomFactor;
-			this.mainContainer.scale.y *= zoomFactor;
+			this.mainContainer.scale.y = Math.abs(this.mainContainer.scale.y) * zoomFactor * currentYSign;
 
 			this.mainContainer.x = mouseX - worldPos.x * this.mainContainer.scale.x;
 			this.mainContainer.y = mouseY - worldPos.y * this.mainContainer.scale.y;
 
 			this.updateViewport();
+			this.updateGrid();
+			this.updateScaleBar();
 		});
 
 		// Pan with middle mouse or Space + drag
@@ -171,6 +187,8 @@ export class PixiRenderer {
 				lastMouseY = e.clientY;
 
 				this.updateViewport();
+				this.updateGrid();
+				this.updateScaleBar();
 			}
 		});
 
@@ -213,10 +231,21 @@ export class PixiRenderer {
 	 */
 	private getViewportBounds(): BoundingBox {
 		const scale = this.mainContainer.scale.x;
+		const scaleY = this.mainContainer.scale.y;
 		const x = -this.mainContainer.x / scale;
-		const y = -this.mainContainer.y / scale;
+		const y = -this.mainContainer.y / scaleY;
 		const width = this.app.screen.width / scale;
-		const height = this.app.screen.height / scale;
+		const height = this.app.screen.height / Math.abs(scaleY);
+
+		// Account for Y-axis flip
+		if (scaleY < 0) {
+			return {
+				minX: x,
+				minY: y - height,
+				maxX: x + width,
+				maxY: y,
+			};
+		}
 
 		return {
 			minX: x,
@@ -227,31 +256,158 @@ export class PixiRenderer {
 	}
 
 	/**
+	 * Update grid overlay
+	 */
+	private updateGrid(): void {
+		this.gridContainer.removeChildren();
+		if (!this.gridVisible) return;
+
+		const bounds = this.getViewportBounds();
+		const scale = this.mainContainer.scale.x;
+
+		// Calculate grid spacing (powers of 10)
+		const viewWidth = bounds.maxX - bounds.minX;
+		const targetLines = 10;
+		const rawSpacing = viewWidth / targetLines;
+		const gridSpacing = 10 ** Math.floor(Math.log10(rawSpacing));
+
+		const graphics = new Graphics();
+		graphics.setStrokeStyle({ width: 1 / scale, color: 0x333333, alpha: 0.3 });
+
+		// Vertical lines
+		const startX = Math.floor(bounds.minX / gridSpacing) * gridSpacing;
+		for (let x = startX; x <= bounds.maxX; x += gridSpacing) {
+			graphics.moveTo(x, bounds.minY);
+			graphics.lineTo(x, bounds.maxY);
+		}
+		graphics.stroke();
+
+		// Horizontal lines
+		const startY = Math.floor(bounds.minY / gridSpacing) * gridSpacing;
+		for (let y = startY; y <= bounds.maxY; y += gridSpacing) {
+			graphics.moveTo(bounds.minX, y);
+			graphics.lineTo(bounds.maxX, y);
+		}
+		graphics.stroke();
+
+		this.gridContainer.addChild(graphics);
+		this.gridContainer.position.copyFrom(this.mainContainer.position);
+		this.gridContainer.scale.copyFrom(this.mainContainer.scale);
+	}
+
+	/**
+	 * Update scale bar
+	 */
+	private updateScaleBar(): void {
+		this.scaleBarContainer.removeChildren();
+
+		const bounds = this.getViewportBounds();
+		const viewWidthDB = bounds.maxX - bounds.minX;
+
+		// Convert database units to micrometers
+		// Coordinates are in database units (typically nanometers)
+		// database unit = database meters, user unit = user meters
+		// To convert to µm: db_units * (database / user) because user is typically 1e-6 (1 µm)
+		const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
+		const viewWidthUserUnits = viewWidthDB * dbToUserUnits;
+
+		// User units are typically micrometers (1e-6 meters)
+		const viewWidthMicrometers = viewWidthUserUnits;
+
+		// Calculate nice round number for bar width in micrometers
+		const barWidthMicrometers = 10 ** Math.floor(Math.log10(viewWidthMicrometers / 4));
+
+		// Convert back to database units for pixel calculation
+		const barWidthDB = barWidthMicrometers / dbToUserUnits;
+		const barWidthPixels = barWidthDB * this.mainContainer.scale.x;
+
+		const graphics = new Graphics();
+		const x = 20;
+		const y = this.app.screen.height - 40;
+
+		// Draw bar
+		graphics.rect(x, y, barWidthPixels, 4);
+		graphics.fill({ color: 0xffffff, alpha: 0.7 });
+
+		// Draw ticks
+		graphics.rect(x, y - 4, 2, 12);
+		graphics.fill({ color: 0xffffff, alpha: 0.7 });
+		graphics.rect(x + barWidthPixels - 2, y - 4, 2, 12);
+		graphics.fill({ color: 0xffffff, alpha: 0.7 });
+
+		this.scaleBarContainer.addChild(graphics);
+
+		// Add label with proper formatting
+		let labelText: string;
+		if (barWidthMicrometers >= 1000) {
+			labelText = `${(barWidthMicrometers / 1000).toFixed(0)} mm`;
+		} else if (barWidthMicrometers >= 1) {
+			labelText = `${barWidthMicrometers.toFixed(0)} µm`;
+		} else {
+			labelText = `${(barWidthMicrometers * 1000).toFixed(0)} nm`;
+		}
+
+		const label = new Text({
+			text: labelText,
+			style: {
+				fontFamily: "monospace",
+				fontSize: 12,
+				fill: 0xffffff,
+			},
+		});
+		label.x = x;
+		label.y = y + 8;
+		this.scaleBarContainer.addChild(label);
+	}
+
+	/**
+	 * Toggle grid visibility
+	 */
+	toggleGrid(): void {
+		this.gridVisible = !this.gridVisible;
+		this.updateGrid();
+	}
+
+	/**
 	 * Render GDS document with LOD (Level of Detail) to prevent OOM
 	 */
-	renderGDSDocument(document: GDSDocument): void {
+	async renderGDSDocument(
+		document: GDSDocument,
+		onProgress?: RenderProgressCallback,
+	): Promise<void> {
 		console.log("[PixiRenderer] Rendering GDS document:", document.name);
 		console.log(
 			`[PixiRenderer] ${document.cells.size} cells, ${document.layers.size} layers, ${document.topCells.length} top cells`,
 		);
 
+		this.documentUnits = document.units;
+
+		onProgress?.(0, "Preparing to render...");
+		await new Promise((resolve) => setTimeout(resolve, 0));
 		this.clear();
 
 		const startTime = performance.now();
-
-		// Start with shallow rendering (depth 0 = only top cell polygons, no instances)
 		this.currentRenderDepth = 0;
 		let totalPolygons = 0;
 		let polygonBudget = this.maxPolygonsPerRender;
 
-		for (const topCellName of document.topCells) {
+		const topCellCount = document.topCells.length;
+		for (let i = 0; i < topCellCount; i++) {
+			const topCellName = document.topCells[i];
+			if (!topCellName) continue;
 			const cell = document.cells.get(topCellName);
+
 			if (cell) {
+				const progress = Math.floor((i / topCellCount) * 80);
+				onProgress?.(progress, `Rendering cell ${i + 1}/${topCellCount}...`);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+
 				if (DEBUG) {
 					console.log(
 						`[PixiRenderer] Rendering top cell: ${topCellName} (${cell.polygons.length} polygons, ${cell.instances.length} instances)`,
 					);
 				}
+
 				const rendered = this.renderCellGeometry(
 					cell,
 					document,
@@ -272,8 +428,6 @@ export class PixiRenderer {
 					);
 					break;
 				}
-			} else {
-				console.warn("[PixiRenderer] Top cell not found:", topCellName);
 			}
 		}
 
@@ -282,8 +436,12 @@ export class PixiRenderer {
 			`[PixiRenderer] Rendered ${totalPolygons} polygons in ${renderTime.toFixed(0)}ms (${this.allGraphicsItems.length} Graphics objects, depth=${this.currentRenderDepth})`,
 		);
 
+		onProgress?.(90, "Fitting to view...");
+		await new Promise((resolve) => setTimeout(resolve, 0));
 		this.fitToView();
-		this.updateViewport(); // Initial viewport culling
+		this.updateViewport();
+
+		onProgress?.(100, "Render complete!");
 		console.log("[PixiRenderer] Initial render complete");
 	}
 
@@ -496,13 +654,16 @@ export class PixiRenderer {
 
 		const scaleX = this.app.screen.width / bounds.width;
 		const scaleY = this.app.screen.height / bounds.height;
-		const scale = Math.min(scaleX, scaleY) * 0.9; // 90% to add padding
+		const scale = Math.min(scaleX, scaleY) * 0.9;
 
-		this.mainContainer.scale.set(scale);
+		// Preserve Y-axis flip
+		this.mainContainer.scale.set(scale, -scale);
 		this.mainContainer.x = (this.app.screen.width - bounds.width * scale) / 2 - bounds.x * scale;
 		this.mainContainer.y = (this.app.screen.height - bounds.height * scale) / 2 - bounds.y * scale;
 
 		this.updateViewport();
+		this.updateGrid();
+		this.updateScaleBar();
 	}
 
 	/**
@@ -538,7 +699,7 @@ export class PixiRenderer {
 	setViewportState(state: ViewportState): void {
 		this.mainContainer.x = state.x;
 		this.mainContainer.y = state.y;
-		this.mainContainer.scale.set(state.scale);
+		this.mainContainer.scale.set(state.scale, -state.scale);
 		this.updateViewport();
 	}
 

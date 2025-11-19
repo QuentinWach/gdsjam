@@ -21,7 +21,7 @@ import { gdsStore } from "./stores/gdsStore";
 			<div class="upload-overlay">
 				<FileUpload />
 			</div>
-		{:else if $gdsStore.isLoading}
+		{:else if $gdsStore.isLoading || $gdsStore.isRendering}
 			<div class="loading-overlay">
 				<div class="loading-content">
 					<div class="spinner"></div>
@@ -32,7 +32,9 @@ import { gdsStore } from "./stores/gdsStore";
 					<p class="progress-text">{Math.round($gdsStore.loadingProgress)}%</p>
 				</div>
 			</div>
-		{:else}
+		{/if}
+
+		{#if $gdsStore.document}
 			<ViewerCanvas />
 		{/if}
 

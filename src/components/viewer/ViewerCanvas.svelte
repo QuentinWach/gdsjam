@@ -2,11 +2,12 @@
 import { onDestroy, onMount } from "svelte";
 import { DEBUG } from "../../lib/config";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
-// biome-ignore lint/correctness/noUnusedImports: Used in template via $gdsStore
 import { gdsStore } from "../../stores/gdsStore";
+import type { GDSDocument } from "../../types/gds";
 
 let canvas: HTMLCanvasElement;
 let renderer: PixiRenderer | null = null;
+let lastRenderedDocument: GDSDocument | null = null;
 
 onMount(async () => {
 	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
@@ -14,13 +15,18 @@ onMount(async () => {
 		renderer = new PixiRenderer();
 		await renderer.init(canvas);
 
-		// If there's already a document loaded, render it
 		if ($gdsStore.document) {
-			renderer.renderGDSDocument($gdsStore.document);
+			lastRenderedDocument = $gdsStore.document;
+			gdsStore.setRendering(true, "Rendering...", 0);
+			await renderer.renderGDSDocument($gdsStore.document, (progress, message) => {
+				gdsStore.setRendering(true, message, progress);
+				if (progress >= 100) {
+					setTimeout(() => gdsStore.setRendering(false), 500);
+				}
+			});
 		} else {
-			// Otherwise render test geometry for prototyping
 			if (DEBUG) console.log("[ViewerCanvas] Rendering test geometry");
-			renderer.renderTestGeometry(1000); // 1K polygons for initial test
+			renderer.renderTestGeometry(1000);
 		}
 	}
 });
@@ -31,9 +37,20 @@ onDestroy(() => {
 });
 
 // Subscribe to GDS store and render when document changes
-$: if (renderer?.isReady() && $gdsStore.document) {
-	console.log("[ViewerCanvas] Rendering document:", $gdsStore.document.name);
-	renderer.renderGDSDocument($gdsStore.document);
+// Only react to document changes, not other store properties
+$: gdsDocument = $gdsStore.document;
+$: if (renderer?.isReady() && gdsDocument && gdsDocument !== lastRenderedDocument) {
+	console.log("[ViewerCanvas] Rendering document:", gdsDocument.name);
+	lastRenderedDocument = gdsDocument;
+	gdsStore.setRendering(true, "Rendering...", 0);
+	(async () => {
+		await renderer.renderGDSDocument(gdsDocument, (progress, message) => {
+			gdsStore.setRendering(true, message, progress);
+			if (progress >= 100) {
+				setTimeout(() => gdsStore.setRendering(false), 500);
+			}
+		});
+	})();
 }
 </script>
 

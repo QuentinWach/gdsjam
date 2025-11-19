@@ -9,6 +9,7 @@ import type { GDSDocument } from "../types/gds";
 export interface GDSState {
 	document: GDSDocument | null;
 	isLoading: boolean;
+	isRendering: boolean;
 	loadingProgress: number; // 0-100
 	loadingMessage: string;
 	error: string | null;
@@ -18,6 +19,7 @@ export interface GDSState {
 const initialState: GDSState = {
 	document: null,
 	isLoading: false,
+	isRendering: false,
 	loadingProgress: 0,
 	loadingMessage: "",
 	error: null,
@@ -42,9 +44,22 @@ function createGDSStore() {
 				document,
 				fileName,
 				isLoading: false,
+				isRendering: false,
 				loadingProgress: 100,
 				loadingMessage: "Loaded successfully",
 				error: null,
+			}));
+		},
+
+		/**
+		 * Set rendering state
+		 */
+		setRendering: (isRendering: boolean, message = "", progress = 0) => {
+			update((state) => ({
+				...state,
+				isRendering,
+				loadingMessage: message,
+				loadingProgress: progress,
 			}));
 		},
 

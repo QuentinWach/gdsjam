@@ -11,10 +11,10 @@ let fileInputElement: HTMLInputElement;
  * Handle file selection
  */
 async function handleFile(file: File) {
-	console.log(`[FileUpload] Loading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+	const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
+	console.log(`[FileUpload] Loading ${file.name} (${fileSizeMB} MB)`);
 
 	if (!file.name.toLowerCase().endsWith(".gds") && !file.name.toLowerCase().endsWith(".gdsii")) {
-		console.warn("[FileUpload] Invalid file extension");
 		gdsStore.setError("Please select a valid GDSII file (.gds or .gdsii)");
 		return;
 	}
@@ -22,18 +22,16 @@ async function handleFile(file: File) {
 	try {
 		gdsStore.setLoading(true, "Reading file...", 0);
 
-		// Read file
 		const arrayBuffer = await file.arrayBuffer();
 		if (DEBUG) {
 			console.log(`[FileUpload] File read complete: ${arrayBuffer.byteLength} bytes`);
 		}
 
-		// Parse GDSII
-		gdsStore.updateProgress(50, "Parsing GDSII file...");
-		const document = await parseGDSII(arrayBuffer);
+		gdsStore.updateProgress(5, "Parsing GDSII file...");
+		const document = await parseGDSII(arrayBuffer, (progress, message) => {
+			gdsStore.updateProgress(progress, message);
+		});
 
-		// Update store
-		gdsStore.updateProgress(100, "Complete!");
 		gdsStore.setDocument(document, file.name);
 		console.log("[FileUpload] File loaded successfully");
 	} catch (error) {

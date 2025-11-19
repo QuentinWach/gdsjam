@@ -82,44 +82,76 @@ function calculateBoundingBox(points: Point[]): BoundingBox {
 }
 
 /**
+ * Progress callback for parsing
+ */
+export type ParseProgressCallback = (progress: number, message: string) => void;
+
+/**
  * Parse GDSII file and convert to GDSDocument
  */
-export async function parseGDSII(fileBuffer: ArrayBuffer): Promise<GDSDocument> {
+export async function parseGDSII(
+	fileBuffer: ArrayBuffer,
+	onProgress?: ParseProgressCallback,
+): Promise<GDSDocument> {
 	const startTime = performance.now();
+	const fileSizeMB = fileBuffer.byteLength / 1024 / 1024;
+
 	if (DEBUG) {
-		console.log(
-			`[GDSParser] Parsing GDSII file (${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)...`,
-		);
+		console.log(`[GDSParser] Parsing GDSII file (${fileSizeMB.toFixed(1)} MB)...`);
 	}
 
-	// Convert ArrayBuffer to Uint8Array
-	const fileData = new Uint8Array(fileBuffer);
+	try {
+		if (fileBuffer.byteLength > 1024 * 1024 * 1024) {
+			throw new Error(`File too large (${fileSizeMB.toFixed(0)} MB). Maximum: 1GB.`);
+		}
 
-	// Parse GDSII using JavaScript library
-	// biome-ignore lint/suspicious/noExplicitAny: External library returns unknown data types
-	const records = Array.from(parseGDS(fileData)) as Array<{ tag: number; data: any }>;
-	if (DEBUG) {
-		console.log(`[GDSParser] Parsed ${records.length} records`);
+		onProgress?.(10, "Converting file data...");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const fileData = new Uint8Array(fileBuffer);
+
+		onProgress?.(20, "Parsing GDSII records...");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		// biome-ignore lint/suspicious/noExplicitAny: External library returns unknown data types
+		const records = Array.from(parseGDS(fileData)) as Array<{ tag: number; data: any }>;
+
+		if (DEBUG) {
+			console.log(`[GDSParser] Parsed ${records.length} records`);
+		}
+
+		if (records.length === 0) {
+			throw new Error("No valid GDSII records found. File may be corrupted.");
+		}
+
+		onProgress?.(40, "Building document structure...");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const document = await buildGDSDocument(records, onProgress);
+
+		const parseTime = performance.now() - startTime;
+		if (DEBUG) {
+			console.log(
+				`[GDSParser] Complete in ${parseTime.toFixed(0)}ms - ${document.cells.size} cells, ${document.layers.size} layers`,
+			);
+		}
+
+		onProgress?.(100, "Parsing complete!");
+		return document;
+	} catch (error) {
+		console.error("[GDSParser] Parsing failed:", error);
+		if (error instanceof Error && error.message.includes("memory")) {
+			throw new Error("Out of memory. Try closing other tabs or use a smaller file.");
+		}
+		throw error instanceof Error ? error : new Error(`Parse failed: ${String(error)}`);
 	}
-
-	// Build document structure from records
-	const document = buildGDSDocument(records);
-
-	const parseTime = performance.now() - startTime;
-	if (DEBUG) {
-		console.log(
-			`[GDSParser] Parsing complete in ${parseTime.toFixed(0)}ms - ${document.cells.size} cells, ${document.layers.size} layers`,
-		);
-	}
-
-	return document;
 }
 
 /**
  * Build GDSDocument from parsed GDSII records
  */
-// biome-ignore lint/suspicious/noExplicitAny: GDSII records have dynamic data types
-function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocument {
+async function buildGDSDocument(
+	// biome-ignore lint/suspicious/noExplicitAny: GDSII records have dynamic data types
+	records: Array<{ tag: number; data: any }>,
+	onProgress?: ParseProgressCallback,
+): Promise<GDSDocument> {
 	if (DEBUG) {
 		console.log(`[buildGDSDocument] Processing ${records.length} records`);
 	}
@@ -127,7 +159,7 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 	const cells = new Map<string, Cell>();
 	const layers = new Map<string, Layer>();
 	let libraryName = "Untitled";
-	let units = { database: 1e-9, user: 1e-6 }; // Default: 1nm database unit, 1µm user unit
+	let units = { database: 1e-9, user: 1e-6 };
 
 	let currentCell: Cell | null = null;
 	let currentPolygon: Partial<Polygon> | null = null;
@@ -138,8 +170,23 @@ function buildGDSDocument(records: Array<{ tag: number; data: any }>): GDSDocume
 	let polygonCount = 0;
 	let instanceCount = 0;
 
-	// Process records sequentially
-	for (const { tag, data } of records) {
+	// Process records sequentially with progress updates
+	const totalRecords = records.length;
+	let lastProgressUpdate = 0;
+
+	for (let i = 0; i < totalRecords; i++) {
+		const record = records[i];
+		if (!record) continue;
+
+		const { tag, data } = record;
+
+		// Update progress every 10% of records
+		if (onProgress && i - lastProgressUpdate > totalRecords / 10) {
+			const progress = 40 + Math.floor((i / totalRecords) * 50);
+			onProgress(progress, `Processing records... ${Math.floor((i / totalRecords) * 100)}%`);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			lastProgressUpdate = i;
+		}
 		switch (tag) {
 			case RecordType.LIBNAME:
 				libraryName = data as string;
