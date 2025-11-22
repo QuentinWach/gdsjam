@@ -8,6 +8,7 @@ import type {
 	BoundingBox,
 	Cell,
 	CellInstance,
+	FileStatistics,
 	GDSDocument,
 	Layer,
 	Point,
@@ -91,8 +92,9 @@ export type ParseProgressCallback = (progress: number, message: string) => void;
  */
 export async function parseGDSII(
 	fileBuffer: ArrayBuffer,
+	fileName: string,
 	onProgress?: ParseProgressCallback,
-): Promise<GDSDocument> {
+): Promise<{ document: GDSDocument; statistics: FileStatistics }> {
 	const startTime = performance.now();
 	const fileSizeMB = fileBuffer.byteLength / 1024 / 1024;
 
@@ -133,8 +135,73 @@ export async function parseGDSII(
 			);
 		}
 
+		// Collect statistics
+		onProgress?.(95, "Collecting statistics...");
+		let totalPolygons = 0;
+		let totalInstances = 0;
+		const layerStats = new Map<
+			string,
+			{
+				layer: number;
+				datatype: number;
+				polygonCount: number;
+			}
+		>();
+
+		for (const cell of document.cells.values()) {
+			totalPolygons += cell.polygons.length;
+			totalInstances += cell.instances.length;
+
+			for (const polygon of cell.polygons) {
+				const layerKey = `${polygon.layer}:${polygon.datatype}`;
+				const existing = layerStats.get(layerKey);
+				if (existing) {
+					existing.polygonCount++;
+				} else {
+					layerStats.set(layerKey, {
+						layer: polygon.layer,
+						datatype: polygon.datatype,
+						polygonCount: 1,
+					});
+				}
+			}
+		}
+
+		// Convert layout dimensions to micrometers
+		// Bounding box is in database units, database unit is in meters
+		// So: (database units) * (database meters) / 1e-6 = micrometers
+		const layoutWidth =
+			((document.boundingBox.maxX - document.boundingBox.minX) * document.units.database) / 1e-6;
+		const layoutHeight =
+			((document.boundingBox.maxY - document.boundingBox.minY) * document.units.database) / 1e-6;
+
+		const statistics: FileStatistics = {
+			fileName,
+			fileSizeBytes: fileBuffer.byteLength,
+			parseTimeMs: parseTime,
+			totalCells: document.cells.size,
+			topCellCount: document.topCells.length,
+			topCellNames: document.topCells,
+			totalPolygons,
+			totalInstances,
+			layerStats,
+			boundingBox: document.boundingBox,
+			layoutWidth,
+			layoutHeight,
+		};
+
+		if (DEBUG) {
+			console.log("[GDSParser] Statistics:", {
+				totalCells: statistics.totalCells,
+				totalPolygons: statistics.totalPolygons,
+				totalInstances: statistics.totalInstances,
+				layers: statistics.layerStats.size,
+				parseTimeMs: statistics.parseTimeMs.toFixed(1),
+			});
+		}
+
 		onProgress?.(100, "Parsing complete!");
-		return document;
+		return { document, statistics };
 	} catch (error) {
 		console.error("[GDSParser] Parsing failed:", error);
 		if (error instanceof Error && error.message.includes("memory")) {

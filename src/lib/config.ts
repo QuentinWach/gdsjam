@@ -34,3 +34,22 @@ export const MAX_POLYGONS_PER_RENDER = Number(
  * Default: 500ms
  */
 export const FPS_UPDATE_INTERVAL = Number(import.meta.env.VITE_FPS_UPDATE_INTERVAL || 500);
+
+/**
+ * LOD (Level of Detail) Configuration
+ */
+
+// LOD thresholds (percentage of MAX_POLYGONS_PER_RENDER)
+export const LOD_INCREASE_THRESHOLD = 0.3; // Increase depth if < 30% budget
+export const LOD_DECREASE_THRESHOLD = 0.9; // Decrease depth if > 90% budget
+
+// LOD hysteresis (milliseconds)
+export const LOD_CHANGE_COOLDOWN = 1000; // Min time between depth changes
+
+// LOD zoom thresholds (significant zoom changes only)
+export const LOD_ZOOM_OUT_THRESHOLD = 0.2; // Trigger LOD update at 0.2x zoom (5x zoom out)
+export const LOD_ZOOM_IN_THRESHOLD = 2.0; // Trigger LOD update at 2.0x zoom (2x zoom in)
+
+// LOD depth limits
+export const LOD_MIN_DEPTH = 0;
+export const LOD_MAX_DEPTH = 10;

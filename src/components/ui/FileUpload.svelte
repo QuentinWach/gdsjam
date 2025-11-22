@@ -28,11 +28,11 @@ async function handleFile(file: File) {
 		}
 
 		gdsStore.updateProgress(5, "Parsing GDSII file...");
-		const document = await parseGDSII(arrayBuffer, (progress, message) => {
+		const { document, statistics } = await parseGDSII(arrayBuffer, file.name, (progress, message) => {
 			gdsStore.updateProgress(progress, message);
 		});
 
-		gdsStore.setDocument(document, file.name);
+		gdsStore.setDocument(document, file.name, statistics);
 		console.log("[FileUpload] File loaded successfully");
 	} catch (error) {
 		console.error("[FileUpload] Failed to load GDSII file:", error);

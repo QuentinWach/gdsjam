@@ -14,6 +14,9 @@ export interface RTreeItem {
 	id: string;
 	type: "polygon" | "instance" | "layer";
 	data: unknown; // Reference to actual polygon, instance, or Graphics object
+	layer?: number; // Layer number (for layer visibility filtering)
+	datatype?: number; // Datatype number (for layer visibility filtering)
+	polygonCount?: number; // Number of polygons in this Graphics object (for metrics)
 }
 
 export class SpatialIndex {

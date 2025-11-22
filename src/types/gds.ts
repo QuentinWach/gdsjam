@@ -64,3 +64,25 @@ export interface GDSDocument {
 		user: number; // User units in meters
 	};
 }
+
+export interface FileStatistics {
+	fileName: string;
+	fileSizeBytes: number;
+	parseTimeMs: number;
+	totalCells: number;
+	topCellCount: number;
+	topCellNames: string[];
+	totalPolygons: number;
+	totalInstances: number;
+	layerStats: Map<
+		string,
+		{
+			layer: number;
+			datatype: number;
+			polygonCount: number;
+		}
+	>;
+	boundingBox: BoundingBox;
+	layoutWidth: number; // in micrometers
+	layoutHeight: number; // in micrometers
+}

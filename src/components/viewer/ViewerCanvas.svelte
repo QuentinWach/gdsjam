@@ -4,10 +4,13 @@ import { DEBUG } from "../../lib/config";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { gdsStore } from "../../stores/gdsStore";
 import type { GDSDocument } from "../../types/gds";
+import PerformancePanel from "../ui/PerformancePanel.svelte";
+import FileStatsPanel from "../ui/FileStatsPanel.svelte";
 
 let canvas: HTMLCanvasElement;
-let renderer: PixiRenderer | null = null;
+let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
+let panelsVisible = $state(false);
 
 onMount(async () => {
 	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
@@ -29,6 +32,20 @@ onMount(async () => {
 			renderer.renderTestGeometry(1000);
 		}
 	}
+
+	// Add keyboard event listener for 'P' key to toggle panels
+	const handleKeyPress = (e: KeyboardEvent) => {
+		if (e.key === "p" || e.key === "P") {
+			panelsVisible = !panelsVisible;
+			if (DEBUG) console.log(`[ViewerCanvas] Panels ${panelsVisible ? "shown" : "hidden"}`);
+		}
+	};
+
+	window.addEventListener("keydown", handleKeyPress);
+
+	return () => {
+		window.removeEventListener("keydown", handleKeyPress);
+	};
 });
 
 onDestroy(() => {
@@ -38,24 +55,28 @@ onDestroy(() => {
 
 // Subscribe to GDS store and render when document changes
 // Only react to document changes, not other store properties
-$: gdsDocument = $gdsStore.document;
-$: if (renderer?.isReady() && gdsDocument && gdsDocument !== lastRenderedDocument) {
-	console.log("[ViewerCanvas] Rendering document:", gdsDocument.name);
-	lastRenderedDocument = gdsDocument;
-	gdsStore.setRendering(true, "Rendering...", 0);
-	(async () => {
-		await renderer.renderGDSDocument(gdsDocument, (progress, message) => {
-			gdsStore.setRendering(true, message, progress);
-			if (progress >= 100) {
-				setTimeout(() => gdsStore.setRendering(false), 500);
-			}
-		});
-	})();
-}
+$effect(() => {
+	const gdsDocument = $gdsStore.document;
+	if (renderer?.isReady() && gdsDocument && gdsDocument !== lastRenderedDocument) {
+		console.log("[ViewerCanvas] Rendering document:", gdsDocument.name);
+		lastRenderedDocument = gdsDocument;
+		gdsStore.setRendering(true, "Rendering...", 0);
+		(async () => {
+			await renderer.renderGDSDocument(gdsDocument, (progress, message) => {
+				gdsStore.setRendering(true, message, progress);
+				if (progress >= 100) {
+					setTimeout(() => gdsStore.setRendering(false), 500);
+				}
+			});
+		})();
+	}
+});
 </script>
 
 <div class="viewer-container">
 	<canvas bind:this={canvas} class="viewer-canvas"></canvas>
+	<PerformancePanel {renderer} visible={panelsVisible} />
+	<FileStatsPanel statistics={$gdsStore.statistics} visible={panelsVisible} />
 </div>
 
 <style>
