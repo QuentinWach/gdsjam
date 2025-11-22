@@ -59,3 +59,8 @@ export const LOD_MAX_DEPTH = 3; // Limit to 3 to prevent instance explosion (unt
  * Layers are split into tiles for efficient viewport culling
  */
 export const SPATIAL_TILE_SIZE = Number(import.meta.env.VITE_SPATIAL_TILE_SIZE || 1_000_000); // 1mm in db units (assuming 1 db unit = 1nm)
+
+/**
+ * Polygon Rendering Configuration
+ */
+export const POLYGON_FILL_MODE = true; // true = filled polygons, false = outline only

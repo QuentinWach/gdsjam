@@ -1,7 +1,7 @@
 # DevLog-001-01: LOD and Performance Features Implementation Plan
 
 ## Metadata
-- **Document Version:** 2.2
+- **Document Version:** 2.3
 - **Created:** 2025-11-22
 - **Last Updated:** 2025-11-22
 - **Author:** Wentao Jiang
@@ -13,13 +13,20 @@
 
 This document details the implementation plan for adaptive Level of Detail (LOD) rendering and performance optimization features. The primary goal is to maintain 60fps rendering performance across diverse GDSII layouts by dynamically adjusting render depth based on visible polygon count, not arbitrary zoom levels.
 
-### Key Updates in v2.2 (2025-11-22)
+### Key Updates in v2.3 (2025-11-22)
 
-**Critical Bugs Fixed**:
+**New Features**:
+1. **Polygon Fill/Outline Toggle**: Added 'O' key to toggle between filled polygons and outline-only rendering mode
+2. **Adaptive Stroke Widths**: Stroke widths maintain constant screen-space width (2 pixels) at all zoom levels in outline mode
+3. **Conditional Re-rendering**: Outline mode triggers re-renders on zoom threshold crossings to update stroke widths
+
+**Critical Bugs Fixed in v2.2**:
 1. **Spatial Tiling System**: Fixed visible polygon count by implementing tile-based batching (1mm tiles) instead of layer-based batching
 2. **Adaptive Zoom Formatting**: Fixed zoom display showing 0.00x by using adaptive decimal places (4/3/2 decimals based on magnitude)
 3. **LOD Depth Reset Bug**: Fixed LOD re-render not increasing depth by preventing depth reset during incremental re-renders
 4. **Merged UI Panels**: Combined Performance and File Statistics into single panel to avoid overlap
+5. **Stroke Width Calculation**: Fixed stroke widths calculated with wrong scale during re-renders by passing saved scale through render pipeline
+6. **Outline Mode Zoom Updates**: Fixed stroke widths not updating on zoom by triggering re-renders in outline mode
 
 **Previous Updates in v2.0**:
 1. **Zoom-Based LOD Triggering**: LOD updates only on significant zoom changes (0.2x or 2.0x)
@@ -936,7 +943,125 @@ if (!this.isRerendering) {
 
 ---
 
-## 10. Future Enhancements (Post-MVP)
+## 10. Debug Session: Polygon Fill/Outline Toggle (2025-11-22)
+
+### 10.1 Feature Implementation
+
+**Requirement**: Toggle between filled polygons and outline-only rendering mode for better inspection of polygon boundaries.
+
+**Implementation**:
+- Added `POLYGON_FILL_MODE` configuration constant (default: true)
+- Added `fillPolygons` state variable in PixiRenderer
+- Modified `addPolygonToGraphics()` to conditionally render filled or outline-only
+- Added `toggleFill()` method and 'O' key keyboard shortcut
+- Updated controls documentation in App.svelte
+
+**Files Modified**:
+- `src/lib/config.ts` - Added POLYGON_FILL_MODE constant
+- `src/lib/renderer/PixiRenderer.ts` - Added fill toggle logic
+- `src/components/viewer/ViewerCanvas.svelte` - Added 'O' key handler
+- `src/App.svelte` - Updated controls documentation
+
+### 10.2 Issue: Stroke Width Calculation During Re-renders
+
+**Symptom**: Outline mode showed very thin strokes (sub-3nm) that were barely visible, and stroke widths did not update when zooming.
+
+**Root Cause Analysis**:
+1. During `performIncrementalRerender()`, a new `mainContainer` is created with default scale of 1.0
+2. Stroke width calculation used `this.mainContainer.scale.x` which was 1.0 during rendering
+3. Actual viewport scale was 0.000617, but stroke width was calculated as `2.0 / 1.0 = 2.0` DB units
+4. Should have been `2.0 / 0.000617 = 3242` DB units for 2 screen pixels
+5. Viewport state was restored after rendering completed, so scale was correct after render but wrong during render
+
+**Console Evidence**:
+```
+[Renderer] Current scale: 0.000617044870410485
+[Render] Cell Big_Dipper_v1_3: strokeWidthDB=2.00e+0 DB units, scale=1.000e+0
+```
+
+**Solution**: Pass Saved Scale Through Render Pipeline
+1. Save current scale before creating new container in `performIncrementalRerender()`
+2. Pass saved scale as `overrideScale` parameter through render pipeline:
+   - `renderGDSDocument(document, onProgress, skipFitToView, overrideScale)`
+   - `renderCellGeometry(..., onProgress, overrideScale)`
+3. Use `overrideScale ?? this.mainContainer.scale.x` for stroke width calculation
+4. Pass `overrideScale` through recursive `renderCellGeometry()` calls
+
+**Files Modified**:
+- `src/lib/renderer/PixiRenderer.ts`:
+  - Modified `performIncrementalRerender()` to save scale and pass to `renderGDSDocument()`
+  - Added `overrideScale` parameter to `renderGDSDocument()` signature
+  - Added `overrideScale` parameter to `renderCellGeometry()` signature
+  - Updated stroke width calculation to use `overrideScale ?? this.mainContainer.scale.x`
+  - Passed `overrideScale` through recursive instance rendering calls
+
+**Result**: Stroke widths now calculated correctly based on actual viewport scale, appearing as 2 screen pixels regardless of zoom level.
+
+### 10.3 Issue: Stroke Widths Not Updating on Zoom
+
+**Symptom**: After fixing stroke width calculation, strokes remained constant in database units when zooming. Zoom threshold messages appeared but no re-render was triggered.
+
+**Console Evidence**:
+```
+[LOD] Zoom threshold crossed: 0.0083x (thresholds: 0.0001x - 0.0012x)
+[LOD] Zoom threshold crossed: 0.0507x (thresholds: 0.0001x - 0.0012x)
+```
+No re-render messages followed.
+
+**Root Cause**: The `triggerLODRerender()` method only triggered re-renders when LOD depth changed. In outline mode, stroke widths need to update on zoom even if depth doesn't change.
+
+**Solution**: Conditional Re-render in Outline Mode
+Modified `triggerLODRerender()` to re-render when:
+- LOD depth changes (existing behavior), OR
+- In outline mode (fillPolygons = false) AND zoom threshold crossed
+
+**Code Change**:
+```typescript
+// Re-render if depth changed OR if in outline mode (to update stroke widths)
+const shouldRerender = newDepth !== this.currentRenderDepth || !this.fillPolygons;
+
+if (shouldRerender) {
+  if (newDepth !== this.currentRenderDepth) {
+    console.log(`[LOD] Depth change: ${this.currentRenderDepth} → ${newDepth} ...`);
+  } else {
+    console.log(`[LOD] Zoom threshold crossed in outline mode - re-rendering to update stroke widths`);
+  }
+  // ... trigger re-render
+}
+```
+
+**Files Modified**:
+- `src/lib/renderer/PixiRenderer.ts` - Modified `triggerLODRerender()` logic
+
+**Result**:
+- In filled mode: Re-renders only on LOD depth changes (performance-optimized)
+- In outline mode: Re-renders on zoom threshold crossings to update stroke widths (maintains constant 2-pixel screen width)
+
+### 10.4 Final Implementation
+
+**Stroke Width Calculation**:
+- Outline mode: 2.0 screen pixels (`strokeWidthDB = 2.0 / scale`)
+- Filled mode: 0.5 screen pixels for thin border (`fillStrokeWidthDB = 0.5 / scale`)
+
+**Re-render Triggers**:
+- Filled mode: Only on LOD depth changes (budget-based)
+- Outline mode: On zoom threshold crossings (0.2x / 2.0x) or LOD depth changes
+
+**User Experience**:
+- Press 'O' to toggle between filled and outline modes
+- Outline mode shows polygon boundaries with constant 2-pixel width at all zoom levels
+- Strokes automatically update when zooming to remain visible
+- Console logs indicate mode changes and re-render reasons
+
+**Testing Results**:
+- Stroke widths correctly calculated based on viewport scale
+- Strokes remain visible and constant width (2 pixels) at all zoom levels
+- Re-renders trigger appropriately in outline mode without interfering with zoom behavior
+- Performance acceptable with zoom-threshold-based re-rendering (not every frame)
+
+---
+
+## 11. Future Enhancements (Post-MVP)
 
 1. **Advanced LOD**:
    - Per-cell polygon budgets (allocate budget based on cell importance)
@@ -965,7 +1090,7 @@ if (!this.isRerendering) {
 
 ---
 
-## 10. References
+## 12. References
 
 - **Parent Document**: DevLog-001-mvp-implementation-plan.md
 - **Related Code**:
@@ -984,7 +1109,7 @@ if (!this.isRerendering) {
 
 ---
 
-## 11. Implementation Progress
+## 13. Implementation Progress
 
 ### Week 1 - Current Status (2025-11-22)
 
@@ -1124,7 +1249,13 @@ if (!this.isRerendering) {
 
 ---
 
-## 12. Changelog
+## 14. Changelog
+
+- **v2.3 (2025-11-22)**: Polygon fill/outline toggle implementation and bugfixes
+  - Added polygon fill/outline toggle feature with 'O' key
+  - Fixed stroke width calculation during re-renders by passing saved scale through render pipeline
+  - Fixed stroke widths not updating on zoom by triggering conditional re-renders in outline mode
+  - Added Debug Session 10 documenting fill/outline toggle implementation and fixes
 
 - **v2.1 (2025-11-22)**: Implementation progress update
   - Added "Implementation Progress" section with completed/partial/not-started features

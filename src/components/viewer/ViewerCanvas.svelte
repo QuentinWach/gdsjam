@@ -4,7 +4,6 @@ import { DEBUG } from "../../lib/config";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { gdsStore } from "../../stores/gdsStore";
 import type { GDSDocument } from "../../types/gds";
-import PerformancePanel from "../ui/PerformancePanel.svelte";
 
 let canvas: HTMLCanvasElement;
 let renderer = $state<PixiRenderer | null>(null);
@@ -32,11 +31,17 @@ onMount(async () => {
 		}
 	}
 
-	// Add keyboard event listener for 'P' key to toggle panels
+	// Add keyboard event listeners
 	const handleKeyPress = (e: KeyboardEvent) => {
+		// 'P' key to toggle panels
 		if (e.key === "p" || e.key === "P") {
 			panelsVisible = !panelsVisible;
 			if (DEBUG) console.log(`[ViewerCanvas] Panels ${panelsVisible ? "shown" : "hidden"}`);
+		}
+
+		// 'O' key to toggle polygon fill mode (Outline)
+		if (e.key === "o" || e.key === "O") {
+			renderer?.toggleFill();
 		}
 	};
 

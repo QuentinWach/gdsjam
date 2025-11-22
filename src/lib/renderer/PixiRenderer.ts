@@ -15,6 +15,7 @@ import {
 	LOD_ZOOM_IN_THRESHOLD,
 	LOD_ZOOM_OUT_THRESHOLD,
 	MAX_POLYGONS_PER_RENDER,
+	POLYGON_FILL_MODE,
 	SPATIAL_TILE_SIZE,
 } from "../config";
 import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
@@ -43,6 +44,7 @@ export class PixiRenderer {
 	private maxPolygonsPerRender = MAX_POLYGONS_PER_RENDER;
 	private currentRenderDepth = 0;
 	private gridVisible = true;
+	private fillPolygons = POLYGON_FILL_MODE;
 	private documentUnits = { database: 1e-9, user: 1e-6 };
 	private viewportUpdateTimeout: number | null = null;
 	private gridUpdateTimeout: number | null = null;
@@ -592,11 +594,19 @@ export class PixiRenderer {
 			newDepth = this.currentRenderDepth - 1;
 		}
 
-		// Only re-render if depth actually changed
-		if (newDepth !== this.currentRenderDepth) {
-			console.log(
-				`[LOD] Depth change: ${this.currentRenderDepth} → ${newDepth} (utilization: ${(utilization * 100).toFixed(1)}%, visible: ${metrics.visiblePolygons.toLocaleString()}/${metrics.polygonBudget.toLocaleString()})`,
-			);
+		// Re-render if depth changed OR if in outline mode (to update stroke widths)
+		const shouldRerender = newDepth !== this.currentRenderDepth || !this.fillPolygons;
+
+		if (shouldRerender) {
+			if (newDepth !== this.currentRenderDepth) {
+				console.log(
+					`[LOD] Depth change: ${this.currentRenderDepth} → ${newDepth} (utilization: ${(utilization * 100).toFixed(1)}%, visible: ${metrics.visiblePolygons.toLocaleString()}/${metrics.polygonBudget.toLocaleString()})`,
+				);
+			} else {
+				console.log(
+					`[LOD] Zoom threshold crossed in outline mode - re-rendering to update stroke widths`,
+				);
+			}
 
 			this.currentRenderDepth = newDepth;
 			this.lastLODChangeTime = now;
@@ -625,8 +635,9 @@ export class PixiRenderer {
 
 		console.log(`[LOD] Starting re-render at depth ${this.currentRenderDepth}`);
 
-		// Save viewport state
+		// Save viewport state and current scale for stroke width calculation
 		const viewportState = this.getViewportState();
+		const savedScale = this.mainContainer.scale.x;
 
 		// Save old graphics to keep them visible during re-rendering
 		const oldGraphicsItems = this.allGraphicsItems;
@@ -640,7 +651,8 @@ export class PixiRenderer {
 		this.spatialIndex.clear();
 
 		// Re-render with new depth (skip fitToView to preserve zoom)
-		await this.renderGDSDocument(this.currentDocument, undefined, true);
+		// Pass the saved scale so stroke widths are calculated correctly
+		await this.renderGDSDocument(this.currentDocument, undefined, true, savedScale);
 
 		// Restore viewport state to new container
 		this.setViewportState(viewportState);
@@ -842,12 +854,28 @@ export class PixiRenderer {
 	}
 
 	/**
+	 * Toggle polygon fill mode (filled vs outline only)
+	 */
+	toggleFill(): void {
+		this.fillPolygons = !this.fillPolygons;
+		console.log(`[Renderer] Polygon fill mode: ${this.fillPolygons ? "filled" : "outline only"}`);
+		console.log(`[Renderer] Current scale: ${this.mainContainer.scale.x}`);
+
+		// Trigger re-render to apply the new fill mode
+		if (this.currentDocument) {
+			this.performIncrementalRerender();
+		}
+	}
+
+	/**
 	 * Render GDS document with LOD (Level of Detail) to prevent OOM
+	 * @param overrideScale - Optional scale to use for stroke width calculation (used during re-renders)
 	 */
 	async renderGDSDocument(
 		document: GDSDocument,
 		onProgress?: RenderProgressCallback,
 		skipFitToView = false,
+		overrideScale?: number,
 	): Promise<void> {
 		// Store document for incremental re-rendering
 		this.currentDocument = document;
@@ -934,6 +962,7 @@ export class PixiRenderer {
 							baseProgress + Math.floor((cellProgress / 100) * cellContribution);
 						onProgress?.(overallProgress, cellMessage);
 					},
+					overrideScale,
 				);
 				totalPolygons += rendered;
 				polygonBudget -= rendered;
@@ -992,6 +1021,7 @@ export class PixiRenderer {
 	 * @param maxDepth - Maximum hierarchy depth to render (0 = only this cell's polygons)
 	 * @param polygonBudget - Maximum polygons to render (stops early if exceeded)
 	 * @param onProgress - Optional progress callback for large cells
+	 * @param overrideScale - Optional scale to use for stroke width calculation (used during re-renders)
 	 */
 	private async renderCellGeometry(
 		cell: Cell,
@@ -1004,6 +1034,7 @@ export class PixiRenderer {
 		maxDepth: number,
 		polygonBudget: number,
 		onProgress?: (progress: number, message: string) => void,
+		overrideScale?: number,
 	): Promise<number> {
 		// Track how many times each cell is rendered (for debugging instance explosion)
 		const currentCount = this.cellRenderCounts.get(cell.name) || 0;
@@ -1021,6 +1052,20 @@ export class PixiRenderer {
 		cellContainer.rotation = (rotation * Math.PI) / 180;
 		cellContainer.scale.x = magnification * (mirror ? -1 : 1);
 		cellContainer.scale.y = magnification;
+
+		// Calculate stroke width in world coordinates that will appear constant on screen
+		// The polygon graphics are children of mainContainer, so they inherit its scale
+		// To get N screen pixels: strokeWidthDB * mainContainer.scale.x = N
+		// Therefore: strokeWidthDB = N / mainContainer.scale.x
+		// Use overrideScale if provided (during re-renders), otherwise use current scale
+		const currentScale = overrideScale ?? this.mainContainer.scale.x;
+		const desiredScreenPixels = 2.0;
+		const strokeWidthDB = desiredScreenPixels / currentScale;
+		const fillStrokeWidthDB = 0.5 / currentScale;
+
+		console.log(
+			`[Render] Cell ${cell.name}: strokeWidthDB=${strokeWidthDB.toExponential(2)} DB units, scale=${currentScale.toExponential(3)}, expected screen pixels=${desiredScreenPixels}`,
+		);
 
 		// Batch polygons by layer AND spatial tile for efficient rendering and culling
 		// Tile key format: "layer:datatype:tileX:tileY"
@@ -1086,7 +1131,7 @@ export class PixiRenderer {
 			}
 
 			// Add polygon to batched graphics
-			this.addPolygonToGraphics(graphics, polygon, layer.color);
+			this.addPolygonToGraphics(graphics, polygon, layer.color, strokeWidthDB, fillStrokeWidthDB);
 			renderedPolygons++;
 
 			// Increment polygon count for this tile
@@ -1161,6 +1206,7 @@ export class PixiRenderer {
 						maxDepth - 1, // Decrease depth for child instances
 						remainingBudget,
 						onProgress, // Pass through progress callback
+						overrideScale, // Pass through override scale
 					);
 					totalPolygons += rendered;
 					remainingBudget -= rendered;
@@ -1178,13 +1224,22 @@ export class PixiRenderer {
 
 	/**
 	 * Add a polygon to an existing Graphics object (for batched rendering)
+	 * @param strokeWidthDB - Stroke width in database units for outline mode (calculated once per render pass)
+	 * @param fillStrokeWidthDB - Stroke width in database units for filled mode (calculated once per render pass)
 	 */
-	private addPolygonToGraphics(graphics: Graphics, polygon: Polygon, colorHex: string): void {
+	private addPolygonToGraphics(
+		graphics: Graphics,
+		polygon: Polygon,
+		colorHex: string,
+		strokeWidthDB: number,
+		fillStrokeWidthDB: number,
+	): void {
 		// Convert hex color to number
 		const color = Number.parseInt(colorHex.replace("#", ""), 16);
 
 		// Draw polygon
 		if (polygon.points.length > 0 && polygon.points[0]) {
+			// Build the polygon path
 			graphics.moveTo(polygon.points[0].x, polygon.points[0].y);
 			for (let i = 1; i < polygon.points.length; i++) {
 				const point = polygon.points[i];
@@ -1193,8 +1248,16 @@ export class PixiRenderer {
 				}
 			}
 			graphics.closePath();
-			graphics.fill({ color, alpha: 0.7 });
-			graphics.stroke({ color, width: 0.5, alpha: 0.9 });
+
+			// Apply fill and/or stroke based on mode
+			if (this.fillPolygons) {
+				// Filled mode: fill + thin stroke
+				graphics.fill({ color, alpha: 0.7 });
+				graphics.stroke({ color, width: fillStrokeWidthDB, alpha: 0.9 });
+			} else {
+				// Outline only mode: no fill, thicker stroke
+				graphics.stroke({ color, width: strokeWidthDB, alpha: 1.0 });
+			}
 		}
 	}
 
