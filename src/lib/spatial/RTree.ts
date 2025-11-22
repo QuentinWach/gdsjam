@@ -12,7 +12,7 @@ export interface RTreeItem {
 	maxX: number;
 	maxY: number;
 	id: string;
-	type: "polygon" | "instance" | "layer";
+	type: "polygon" | "instance" | "layer" | "tile";
 	data: unknown; // Reference to actual polygon, instance, or Graphics object
 	layer?: number; // Layer number (for layer visibility filtering)
 	datatype?: number; // Datatype number (for layer visibility filtering)

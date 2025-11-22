@@ -58,8 +58,15 @@ function formatPercent(value: number): string {
 	return `${(value * 100).toFixed(1)}%`;
 }
 
-// Format zoom level
+// Format zoom level with adaptive decimal places
 function formatZoom(zoom: number): string {
+	// Use more decimal places for very small zoom values
+	if (zoom < 0.01) {
+		return `${zoom.toFixed(4)}x`;
+	}
+	if (zoom < 0.1) {
+		return `${zoom.toFixed(3)}x`;
+	}
 	return `${zoom.toFixed(2)}x`;
 }
 

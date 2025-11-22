@@ -53,3 +53,9 @@ export const LOD_ZOOM_IN_THRESHOLD = 2.0; // Trigger LOD update at 2.0x zoom (2x
 // LOD depth limits
 export const LOD_MIN_DEPTH = 0;
 export const LOD_MAX_DEPTH = 10;
+
+/**
+ * Spatial Tiling Configuration
+ * Layers are split into tiles for efficient viewport culling
+ */
+export const SPATIAL_TILE_SIZE = Number(import.meta.env.VITE_SPATIAL_TILE_SIZE || 1_000_000); // 1mm in db units (assuming 1 db unit = 1nm)

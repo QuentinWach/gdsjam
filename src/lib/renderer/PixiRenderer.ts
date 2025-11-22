@@ -16,6 +16,7 @@ import {
 	LOD_ZOOM_IN_THRESHOLD,
 	LOD_ZOOM_OUT_THRESHOLD,
 	MAX_POLYGONS_PER_RENDER,
+	SPATIAL_TILE_SIZE,
 } from "../config";
 import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
 
@@ -564,6 +565,11 @@ export class PixiRenderer {
 
 		// Check if zoom has changed significantly and trigger LOD update
 		if (this.hasZoomChangedSignificantly(currentZoom)) {
+			if (DEBUG) {
+				console.log(
+					`[PixiRenderer] Zoom threshold crossed! Current: ${currentZoom.toFixed(4)}x, Thresholds: ${this.zoomThresholdLow.toFixed(4)}x - ${this.zoomThresholdHigh.toFixed(4)}x`,
+				);
+			}
 			this.triggerLODRerender();
 		}
 	}
@@ -626,13 +632,29 @@ export class PixiRenderer {
 
 		let newDepth = this.currentRenderDepth;
 
+		if (DEBUG) {
+			console.log(
+				`[PixiRenderer] LOD check: depth=${this.currentRenderDepth}, utilization=${(utilization * 100).toFixed(1)}%, thresholds: increase<${(LOD_INCREASE_THRESHOLD * 100).toFixed(0)}%, decrease>${(LOD_DECREASE_THRESHOLD * 100).toFixed(0)}%`,
+			);
+		}
+
 		// Increase depth if we have budget headroom
 		if (utilization < LOD_INCREASE_THRESHOLD && this.currentRenderDepth < LOD_MAX_DEPTH) {
 			newDepth = this.currentRenderDepth + 1;
+			if (DEBUG) {
+				console.log(`[PixiRenderer] LOD: Increasing depth to ${newDepth} (low utilization)`);
+			}
 		}
 		// Decrease depth if we're over budget
 		else if (utilization > LOD_DECREASE_THRESHOLD && this.currentRenderDepth > LOD_MIN_DEPTH) {
 			newDepth = this.currentRenderDepth - 1;
+			if (DEBUG) {
+				console.log(`[PixiRenderer] LOD: Decreasing depth to ${newDepth} (high utilization)`);
+			}
+		} else {
+			if (DEBUG) {
+				console.log(`[PixiRenderer] LOD: No depth change needed`);
+			}
 		}
 
 		// Only re-render if depth actually changed
@@ -919,7 +941,10 @@ export class PixiRenderer {
 		this.clear();
 
 		const startTime = performance.now();
-		this.currentRenderDepth = 0;
+		// Only reset depth to 0 on initial render, not on incremental re-renders
+		if (!this.isRerendering) {
+			this.currentRenderDepth = 0;
+		}
 		let totalPolygons = 0;
 		let polygonBudget = this.maxPolygonsPerRender;
 
@@ -1054,10 +1079,11 @@ export class PixiRenderer {
 		cellContainer.scale.x = magnification * (mirror ? -1 : 1);
 		cellContainer.scale.y = magnification;
 
-		// Batch polygons by layer for efficient rendering
-		const layerGraphics = new Map<string, Graphics>();
-		const layerBounds = new Map<string, BoundingBox>();
-		const layerPolygonCounts = new Map<string, number>();
+		// Batch polygons by layer AND spatial tile for efficient rendering and culling
+		// Tile key format: "layer:datatype:tileX:tileY"
+		const tileGraphics = new Map<string, Graphics>();
+		const tileBounds = new Map<string, BoundingBox>();
+		const tilePolygonCounts = new Map<string, number>();
 
 		let renderedPolygons = 0;
 		const totalPolygonsInCell = cell.polygons.length;
@@ -1080,36 +1106,43 @@ export class PixiRenderer {
 			const layer = document.layers.get(layerKey);
 			if (!layer || !layer.visible) continue;
 
-			// Get or create Graphics object for this layer
-			let graphics = layerGraphics.get(layerKey);
+			// Calculate which tile this polygon belongs to (based on its center)
+			const centerX = (polygon.boundingBox.minX + polygon.boundingBox.maxX) / 2;
+			const centerY = (polygon.boundingBox.minY + polygon.boundingBox.maxY) / 2;
+			const tileX = Math.floor(centerX / SPATIAL_TILE_SIZE);
+			const tileY = Math.floor(centerY / SPATIAL_TILE_SIZE);
+			const tileKey = `${layerKey}:${tileX}:${tileY}`;
+
+			// Get or create Graphics object for this tile
+			let graphics = tileGraphics.get(tileKey);
 			if (!graphics) {
 				graphics = new Graphics();
-				layerGraphics.set(layerKey, graphics);
+				tileGraphics.set(tileKey, graphics);
 				cellContainer.addChild(graphics);
 
-				// Initialize bounds for this layer
-				layerBounds.set(layerKey, {
+				// Initialize bounds for this tile
+				tileBounds.set(tileKey, {
 					minX: Number.POSITIVE_INFINITY,
 					minY: Number.POSITIVE_INFINITY,
 					maxX: Number.NEGATIVE_INFINITY,
 					maxY: Number.NEGATIVE_INFINITY,
 				});
 
-				// Initialize polygon count for this layer
-				layerPolygonCounts.set(layerKey, 0);
+				// Initialize polygon count for this tile
+				tilePolygonCounts.set(tileKey, 0);
 			}
 
 			// Add polygon to batched graphics
 			this.addPolygonToGraphics(graphics, polygon, layer.color);
 			renderedPolygons++;
 
-			// Increment polygon count for this layer
-			const currentCount = layerPolygonCounts.get(layerKey) || 0;
-			layerPolygonCounts.set(layerKey, currentCount + 1);
+			// Increment polygon count for this tile
+			const currentCount = tilePolygonCounts.get(tileKey) || 0;
+			tilePolygonCounts.set(tileKey, currentCount + 1);
 
-			// Update layer bounds (avoid calling getBounds() which is expensive)
+			// Update tile bounds (avoid calling getBounds() which is expensive)
 			// biome-ignore lint/style/noNonNullAssertion: Bounds initialized earlier in loop
-			const bounds = layerBounds.get(layerKey)!;
+			const bounds = tileBounds.get(tileKey)!;
 			bounds.minX = Math.min(bounds.minX, polygon.boundingBox.minX);
 			bounds.minY = Math.min(bounds.minY, polygon.boundingBox.minY);
 			bounds.maxX = Math.max(bounds.maxX, polygon.boundingBox.maxX);
@@ -1123,24 +1156,24 @@ export class PixiRenderer {
 			}
 		}
 
-		// Add Graphics objects to spatial index (one per layer)
+		// Add Graphics objects to spatial index (one per tile)
 		// DON'T call graphics.getBounds() - it's too expensive for large files
-		for (const [layerKey, graphics] of layerGraphics) {
-			// biome-ignore lint/style/noNonNullAssertion: Bounds exist for all layers in map
-			const bounds = layerBounds.get(layerKey)!;
-			// Parse layer and datatype from layerKey (format: "layer:datatype")
-			const [layerStr, datatypeStr] = layerKey.split(":");
+		for (const [tileKey, graphics] of tileGraphics) {
+			// biome-ignore lint/style/noNonNullAssertion: Bounds exist for all tiles in map
+			const bounds = tileBounds.get(tileKey)!;
+			// Parse layer and datatype from tileKey (format: "layer:datatype:tileX:tileY")
+			const [layerStr, datatypeStr] = tileKey.split(":");
 			const layer = Number.parseInt(layerStr || "0", 10);
 			const datatype = Number.parseInt(datatypeStr || "0", 10);
-			const polygonCount = layerPolygonCounts.get(layerKey) || 0;
+			const polygonCount = tilePolygonCounts.get(tileKey) || 0;
 
 			const item: RTreeItem = {
 				minX: bounds.minX + x,
 				minY: bounds.minY + y,
 				maxX: bounds.maxX + x,
 				maxY: bounds.maxY + y,
-				id: `${cell.name}_${layerKey}_${x}_${y}`,
-				type: "layer",
+				id: `${cell.name}_${tileKey}_${x}_${y}`,
+				type: "tile",
 				data: graphics,
 				layer,
 				datatype,
@@ -1152,7 +1185,7 @@ export class PixiRenderer {
 
 		if (DEBUG && renderedPolygons > 0) {
 			console.log(
-				`[PixiRenderer] Rendered ${renderedPolygons} polygons in ${layerGraphics.size} layer batches for cell ${cell.name}`,
+				`[PixiRenderer] Rendered ${renderedPolygons} polygons in ${tileGraphics.size} spatial tiles for cell ${cell.name}`,
 			);
 		}
 
