@@ -50,8 +50,8 @@ export class PixiRenderer {
 	private currentDocument: GDSDocument | null = null;
 
 	// LOD metrics tracking
-	private zoomThresholdLow = LOD_ZOOM_OUT_THRESHOLD;
-	private zoomThresholdHigh = LOD_ZOOM_IN_THRESHOLD;
+	private zoomThresholdLow = 0;
+	private zoomThresholdHigh = 0;
 	private lastLODChangeTime = 0;
 	private visiblePolygonCount = 0;
 	private totalRenderedPolygons = 0;
@@ -505,11 +505,23 @@ export class PixiRenderer {
 		const visibleItems = this.spatialIndex.query(viewportBounds);
 		const visibleIds = new Set(visibleItems.map((item) => item.id));
 
+		const currentZoom = Math.abs(this.mainContainer.scale.x);
+		const viewportWidth = viewportBounds.maxX - viewportBounds.minX;
+		const viewportHeight = viewportBounds.maxY - viewportBounds.minY;
+
+		// Calculate total polygon count from spatial query results
+		let spatialQueryPolygonCount = 0;
+		for (const item of visibleItems) {
+			spatialQueryPolygonCount += item.polygonCount || 0;
+		}
+
 		if (DEBUG) {
 			console.log(
-				`[PixiRenderer] Viewport bounds: (${viewportBounds.minX.toFixed(0)}, ${viewportBounds.minY.toFixed(0)}) to (${viewportBounds.maxX.toFixed(0)}, ${viewportBounds.maxY.toFixed(0)})`,
+				`[PixiRenderer] Zoom: ${currentZoom.toFixed(4)}x, Viewport: (${viewportBounds.minX.toFixed(0)}, ${viewportBounds.minY.toFixed(0)}) to (${viewportBounds.maxX.toFixed(0)}, ${viewportBounds.maxY.toFixed(0)}) [${viewportWidth.toFixed(0)} × ${viewportHeight.toFixed(0)}]`,
 			);
-			console.log(`[PixiRenderer] Spatial query returned ${visibleItems.length} items`);
+			console.log(
+				`[PixiRenderer] Spatial query returned ${visibleItems.length} items (${spatialQueryPolygonCount} polygons) out of ${this.allGraphicsItems.length} total`,
+			);
 		}
 
 		// Update visibility of all graphics items (combine viewport + layer visibility)
@@ -538,10 +550,19 @@ export class PixiRenderer {
 			console.log(
 				`[PixiRenderer] Viewport culling: ${visiblePolygonCount} polygons in ${visibleGraphicsCount}/${this.allGraphicsItems.length} Graphics objects visible`,
 			);
+
+			// Diagnostic: Show sample of visible items
+			if (visibleItems.length > 0 && visibleItems.length < this.allGraphicsItems.length) {
+				const sampleItem = visibleItems[0];
+				if (sampleItem) {
+					console.log(
+						`[PixiRenderer] Sample visible item: bounds=(${sampleItem.minX.toFixed(0)}, ${sampleItem.minY.toFixed(0)}) to (${sampleItem.maxX.toFixed(0)}, ${sampleItem.maxY.toFixed(0)}), polygons=${sampleItem.polygonCount}`,
+					);
+				}
+			}
 		}
 
 		// Check if zoom has changed significantly and trigger LOD update
-		const currentZoom = this.mainContainer.scale.x;
 		if (this.hasZoomChangedSignificantly(currentZoom)) {
 			this.triggerLODRerender();
 		}
@@ -667,6 +688,9 @@ export class PixiRenderer {
 		// Restore viewport state to new container
 		this.setViewportState(viewportState);
 
+		// Update zoom thresholds based on current zoom
+		this.updateZoomThresholds(Math.abs(this.mainContainer.scale.x));
+
 		// Swap containers: remove old, add new
 		this.app.stage.removeChild(oldMainContainer);
 		this.app.stage.addChild(this.mainContainer);
@@ -699,12 +723,24 @@ export class PixiRenderer {
 
 		// Account for Y-axis flip
 		if (scaleY < 0) {
-			return {
+			const bounds = {
 				minX: x,
 				minY: y - height,
 				maxX: x + width,
 				maxY: y,
 			};
+
+			if (DEBUG && Math.random() < 0.05) {
+				// Log occasionally to verify bounds calculation
+				console.log(
+					`[PixiRenderer] getViewportBounds: scale=${scale.toFixed(4)}, scaleY=${scaleY.toFixed(4)}, container.x=${this.mainContainer.x.toFixed(0)}, container.y=${this.mainContainer.y.toFixed(0)}`,
+				);
+				console.log(
+					`[PixiRenderer] getViewportBounds: screen=${this.app.screen.width}x${this.app.screen.height}, world bounds=(${bounds.minX.toFixed(0)}, ${bounds.minY.toFixed(0)}) to (${bounds.maxX.toFixed(0)}, ${bounds.maxY.toFixed(0)})`,
+				);
+			}
+
+			return bounds;
 		}
 
 		return {
@@ -1293,6 +1329,15 @@ export class PixiRenderer {
 	 */
 	getPerformanceMetrics() {
 		const budgetUtilization = this.visiblePolygonCount / this.maxPolygonsPerRender;
+		const viewportBounds = this.getViewportBounds();
+		const zoomLevel = Math.abs(this.mainContainer.scale.x);
+
+		if (DEBUG && Math.random() < 0.1) {
+			// Log occasionally (10% of calls) to avoid spam
+			console.log(
+				`[PixiRenderer] getPerformanceMetrics: zoom=${zoomLevel.toFixed(4)}x, visiblePolygons=${this.visiblePolygonCount}, thresholds=${this.zoomThresholdLow.toFixed(4)}x/${this.zoomThresholdHigh.toFixed(4)}x`,
+			);
+		}
 
 		return {
 			fps: this.currentFPS,
@@ -1301,9 +1346,17 @@ export class PixiRenderer {
 			polygonBudget: this.maxPolygonsPerRender,
 			budgetUtilization,
 			currentDepth: this.currentRenderDepth,
-			zoomLevel: this.mainContainer.scale.x,
+			zoomLevel,
 			zoomThresholdLow: this.zoomThresholdLow,
 			zoomThresholdHigh: this.zoomThresholdHigh,
+			viewportBounds: {
+				minX: viewportBounds.minX,
+				minY: viewportBounds.minY,
+				maxX: viewportBounds.maxX,
+				maxY: viewportBounds.maxY,
+				width: viewportBounds.maxX - viewportBounds.minX,
+				height: viewportBounds.maxY - viewportBounds.minY,
+			},
 		};
 	}
 

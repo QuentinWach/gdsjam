@@ -1,11 +1,11 @@
 # DevLog-001-01: LOD and Performance Features Implementation Plan
 
 ## Metadata
-- **Document Version:** 2.0
+- **Document Version:** 2.1
 - **Created:** 2025-11-22
 - **Last Updated:** 2025-11-22
 - **Author:** Wentao Jiang
-- **Status:** Planning
+- **Status:** In Progress - Week 1 Implementation
 - **Parent Document:** DevLog-001-mvp-implementation-plan.md
 - **Target Completion:** Week 1-2
 
@@ -1448,13 +1448,13 @@ export interface RTreeItem {
 ## 8. Success Criteria
 
 ### Week 1 Completion Criteria
-- [ ] Adaptive LOD implemented with zoom thresholds (0.2x / 2.0x)
-- [ ] Incremental re-render working (shows loading indicator)
-- [ ] Performance metrics panel toggleable with 'P' key
-- [ ] File statistics panel integrated below performance panel
-- [ ] Layer visibility excluded from polygon budget
-- [ ] LOD maintains 30fps with 100K visible polygons
-- [ ] No OOM crashes with 500MB files
+- [x] ~~Adaptive LOD implemented with zoom thresholds (0.2x / 2.0x)~~ - **PARTIAL** (infrastructure done, but not working due to visible polygon count issue)
+- [x] Incremental re-render working (shows loading indicator) - **DONE** (seamless re-render with old graphics visible)
+- [x] Performance metrics panel toggleable with 'P' key - **DONE**
+- [x] File statistics panel integrated below performance panel - **DONE**
+- [x] Layer visibility excluded from polygon budget - **DONE**
+- [ ] LOD maintains 30fps with 100K visible polygons - **BLOCKED** (LOD not triggering due to visible polygon count issue)
+- [x] No OOM crashes with 500MB files - **DONE** (fixed by budget enforcement + timer-based metrics updates)
 
 ### Week 2 Completion Criteria
 - [ ] File upload clears after parse (not before)
@@ -1462,6 +1462,11 @@ export interface RTreeItem {
 - [ ] Hidden layers excluded from LOD calculations
 - [ ] Y.js integration for synced layer visibility
 - [ ] Performance optimizations documented
+
+### Critical Blockers for Week 1 Completion
+- [ ] **Fix visible polygon count calculation when zoomed in** - Currently shows ~100K polygons even when zoomed to small area
+- [ ] **Fix zoom level display** - Shows 0.00x instead of actual zoom
+- [ ] **Fix Next LOD thresholds display** - Shows 0.00x/0.00x instead of actual thresholds
 
 ---
 
@@ -1513,7 +1518,154 @@ export interface RTreeItem {
 
 ---
 
-## 11. Changelog
+## 11. Implementation Progress
+
+### Week 1 - Current Status (2025-11-22)
+
+#### ✅ Completed Features
+
+1. **Polygon Budget System** (P0)
+   - ✅ Budget enforcement in rendering loop (100K polygon limit)
+   - ✅ Budget check before rendering each polygon (prevents OOM)
+   - ✅ Budget exhaustion logging and early termination
+   - **Files Modified**: `src/lib/renderer/PixiRenderer.ts`
+
+2. **Viewport Culling** (P0)
+   - ✅ R-tree spatial indexing for efficient visibility queries
+   - ✅ Debounced viewport updates (100ms delay)
+   - ✅ Combined viewport + layer visibility filtering
+   - ✅ Polygon count tracking per Graphics object (`polygonCount` field in RTreeItem)
+   - **Files Modified**: `src/lib/renderer/PixiRenderer.ts`, `src/lib/spatial/RTree.ts`
+
+3. **Performance Metrics Panel** (P0)
+   - ✅ Toggle with 'P' key
+   - ✅ Positioned below FPS counter (top-right)
+   - ✅ Timer-based updates (500ms) instead of reactive `$derived` (prevents OOM)
+   - ✅ Displays: FPS, visible polygons, total polygons, budget usage, LOD depth
+   - ✅ Viewport bounds display (width × height in database units)
+   - **Files Created**: `src/components/ui/PerformancePanel.svelte`
+   - **Files Modified**: `src/components/viewer/ViewerCanvas.svelte`
+
+4. **File Statistics Panel** (P1)
+   - ✅ Integrated below Performance Panel
+   - ✅ Shares 'P' key toggle with Performance Panel
+   - ✅ Displays: file info, structure, layers, layout dimensions
+   - ✅ Statistics collected during parsing (no extra pass)
+   - ✅ **Fixed layout size calculation** (was showing meters, now shows mm correctly)
+   - **Files Created**: `src/components/ui/FileStatsPanel.svelte`
+   - **Files Modified**: `src/lib/gds/GDSParser.ts`, `src/types/gds.ts`, `src/stores/gdsStore.ts`
+
+5. **Seamless Re-rendering** (P0)
+   - ✅ Incremental re-render keeps old graphics visible during re-rendering
+   - ✅ Atomic container swap (no flash/blank screen)
+   - ✅ Zoom preservation during re-render (`skipFitToView` parameter)
+   - ✅ Re-render loop prevention (`isRerendering` flag)
+   - **Files Modified**: `src/lib/renderer/PixiRenderer.ts`
+
+6. **Layer Visibility Integration** (P2)
+   - ✅ Layer visibility map in PixiRenderer
+   - ✅ Combined viewport + layer visibility filtering
+   - ✅ Hidden layers excluded from visible polygon count
+   - **Files Modified**: `src/lib/renderer/PixiRenderer.ts`
+
+#### 🚧 Partially Implemented
+
+1. **Adaptive LOD System** (P0) - **PARTIALLY WORKING**
+   - ✅ Zoom threshold tracking (`zoomThresholdLow`, `zoomThresholdHigh`)
+   - ✅ Zoom threshold update after fitToView and incremental re-render
+   - ✅ LOD depth tracking (`currentRenderDepth`)
+   - ✅ Incremental re-render infrastructure
+   - ❌ **ISSUE: Zoom level display shows 0.00x** (should show actual zoom like 0.03x, 1.5x, etc.)
+   - ❌ **ISSUE: Next LOD thresholds show 0.00x/0.00x** (should show relative thresholds)
+   - ❌ **CRITICAL: Visible polygon count not updating correctly when zoomed in**
+     - At full view (0.03x zoom): Shows 99,920 polygons (correct)
+     - When zoomed in significantly: Still shows ~99,920 polygons (WRONG - should drop to few thousand)
+     - **Root Cause**: Viewport culling may not be working correctly, or viewport bounds calculation is wrong
+   - ❌ **CRITICAL: LOD re-render not triggering** because visible polygon count stays near max
+   - **Files Modified**: `src/lib/renderer/PixiRenderer.ts`, `src/lib/config.ts`
+
+#### ❌ Known Issues
+
+1. **Zoom Level Display (0.00x)** - Medium Priority
+   - **Symptom**: Performance metrics shows "Zoom Level: 0.00x" instead of actual zoom
+   - **Attempted Fix**: Added `Math.abs(this.mainContainer.scale.x)` in `getPerformanceMetrics()`
+   - **Status**: Still not working - needs investigation
+   - **Impact**: User cannot see current zoom level
+
+2. **Next LOD Thresholds (0.00x/0.00x)** - Medium Priority
+   - **Symptom**: Performance metrics shows "Next LOD: 0.00x / 0.00x" instead of actual thresholds
+   - **Attempted Fix**: Initialize to 0 instead of constants, update after fitToView and re-render
+   - **Status**: Still not working - needs investigation
+   - **Impact**: User cannot see when next LOD update will trigger
+
+3. **Visible Polygon Count Not Updating** - **CRITICAL PRIORITY**
+   - **Symptom**: When zoomed in to small area, visible polygon count stays near 100K instead of dropping
+   - **Expected**: At 0.03x zoom (full view) → 99,920 polygons visible (correct)
+   - **Expected**: At 10x zoom (small area) → few thousand polygons visible
+   - **Actual**: At 10x zoom → still shows ~99,920 polygons (WRONG)
+   - **Root Cause Hypothesis**:
+     - Viewport bounds calculation may be incorrect
+     - Spatial index query may be returning all items instead of visible items
+     - Polygon count summation may be wrong
+   - **Impact**: LOD system cannot work - visible polygon count never drops below 90% threshold
+   - **Next Steps**:
+     1. Add debug logging to `getViewportBounds()` to verify bounds are correct
+     2. Add debug logging to spatial query to verify correct items returned
+     3. Verify polygon count summation logic
+     4. Test with smaller file to isolate issue
+
+4. **Layout Size Conversion** - ✅ FIXED
+   - **Was**: Showing 18.01 m × 10.86 m (wrong - used `user` units)
+   - **Now**: Showing 18.01 mm × 10.86 mm (correct - uses `database` units)
+   - **Fix**: Changed from `document.units.user` to `document.units.database` in conversion
+
+#### 📋 Not Started
+
+1. **File Upload Improvements** (P2)
+   - Clear renderer after successful parse (not before)
+   - Better error handling
+
+2. **Layer Visibility Control Panel** (P2)
+   - UI panel for toggling layer visibility
+   - Sync/desync toggle
+   - Bulk operations (show all / hide all)
+
+### Next Steps (Priority Order)
+
+1. **CRITICAL**: Fix visible polygon count calculation when zoomed in
+   - Debug viewport bounds calculation
+   - Debug spatial index query
+   - Verify polygon count summation
+   - Test with smaller file
+
+2. **HIGH**: Fix zoom level display (0.00x issue)
+   - Investigate why `Math.abs(this.mainContainer.scale.x)` returns 0
+   - Check if scale is set correctly after fitToView
+   - Add debug logging
+
+3. **HIGH**: Fix Next LOD thresholds display (0.00x/0.00x issue)
+   - Verify `updateZoomThresholds()` is being called
+   - Verify thresholds are calculated correctly
+   - Add debug logging
+
+4. **MEDIUM**: Complete adaptive LOD system
+   - Once visible polygon count is fixed, LOD should work automatically
+   - Test LOD depth changes with zoom in/out
+   - Verify incremental re-render triggers correctly
+
+5. **LOW**: File upload improvements
+6. **LOW**: Layer visibility control panel
+
+---
+
+## 12. Changelog
+
+- **v2.1 (2025-11-22)**: Implementation progress update
+  - Added "Implementation Progress" section with completed/partial/not-started features
+  - Documented critical issues with visible polygon count, zoom level, and LOD thresholds
+  - Fixed layout size calculation (meters → mm)
+  - Prioritized next steps based on criticality
+  - Updated status to "In Progress - Week 1 Implementation"
 
 - **v2.0 (2025-11-22)**: Major update based on codebase analysis and user feedback
   - **Added zoom-based LOD triggering** (0.2x / 2.0x thresholds)

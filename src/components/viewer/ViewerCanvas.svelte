@@ -5,7 +5,6 @@ import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { gdsStore } from "../../stores/gdsStore";
 import type { GDSDocument } from "../../types/gds";
 import PerformancePanel from "../ui/PerformancePanel.svelte";
-import FileStatsPanel from "../ui/FileStatsPanel.svelte";
 
 let canvas: HTMLCanvasElement;
 let renderer = $state<PixiRenderer | null>(null);
@@ -75,8 +74,7 @@ $effect(() => {
 
 <div class="viewer-container">
 	<canvas bind:this={canvas} class="viewer-canvas"></canvas>
-	<PerformancePanel {renderer} visible={panelsVisible} />
-	<FileStatsPanel statistics={$gdsStore.statistics} visible={panelsVisible} />
+	<PerformancePanel {renderer} statistics={$gdsStore.statistics} visible={panelsVisible} />
 </div>
 
 <style>

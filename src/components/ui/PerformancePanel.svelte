@@ -1,13 +1,15 @@
 <script lang="ts">
 import { onMount, onDestroy } from "svelte";
 import type { PixiRenderer } from "../../lib/renderer/PixiRenderer";
+import type { FileStatistics } from "../../types/gds";
 
 interface Props {
 	renderer: PixiRenderer | null;
 	visible: boolean;
+	statistics: FileStatistics | null;
 }
 
-let { renderer, visible }: Props = $props();
+let { renderer, visible, statistics }: Props = $props();
 
 let metrics = $state({
 	fps: 0,
@@ -19,6 +21,14 @@ let metrics = $state({
 	zoomLevel: 1.0,
 	zoomThresholdLow: 0.2,
 	zoomThresholdHigh: 2.0,
+	viewportBounds: {
+		minX: 0,
+		minY: 0,
+		maxX: 0,
+		maxY: 0,
+		width: 0,
+		height: 0,
+	},
 });
 
 // Update metrics periodically (every 500ms) instead of reactively
@@ -52,15 +62,38 @@ function formatPercent(value: number): string {
 function formatZoom(zoom: number): string {
 	return `${zoom.toFixed(2)}x`;
 }
+
+// Format file size
+function formatFileSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+// Format time
+function formatTime(ms: number): string {
+	if (ms < 1000) return `${ms.toFixed(0)} ms`;
+	return `${(ms / 1000).toFixed(2)} s`;
+}
+
+// Format dimensions
+function formatDimension(um: number): string {
+	if (um < 1000) return `${um.toFixed(1)} µm`;
+	if (um < 1000000) return `${(um / 1000).toFixed(2)} mm`;
+	return `${(um / 1000000).toFixed(2)} m`;
+}
 </script>
 
 {#if visible}
 	<div class="performance-panel">
 		<div class="panel-header">
-			<h3>Performance Metrics</h3>
+			<h3>Performance & File Info</h3>
 			<span class="hint">Press 'P' to toggle</span>
 		</div>
 
+		<!-- Performance Metrics Section -->
+		<div class="section-title">Performance</div>
 		<div class="metrics-grid">
 			<div class="metric">
 				<span class="label">FPS:</span>
@@ -111,7 +144,87 @@ function formatZoom(zoom: number): string {
 					{formatZoom(metrics.zoomThresholdLow)} / {formatZoom(metrics.zoomThresholdHigh)}
 				</span>
 			</div>
+
+			<div class="metric viewport-info">
+				<span class="label">Viewport Size:</span>
+				<span class="value viewport-bounds">
+					{formatNumber(Math.round(metrics.viewportBounds.width))} × {formatNumber(
+						Math.round(metrics.viewportBounds.height),
+					)} db units
+				</span>
+			</div>
+
+			<div class="metric viewport-coords">
+				<span class="label">Viewport Min:</span>
+				<span class="value viewport-bounds">
+					({formatNumber(Math.round(metrics.viewportBounds.minX))}, {formatNumber(
+						Math.round(metrics.viewportBounds.minY),
+					)})
+				</span>
+			</div>
+
+			<div class="metric viewport-coords">
+				<span class="label">Viewport Max:</span>
+				<span class="value viewport-bounds">
+					({formatNumber(Math.round(metrics.viewportBounds.maxX))}, {formatNumber(
+						Math.round(metrics.viewportBounds.maxY),
+					)})
+				</span>
+			</div>
 		</div>
+
+		<!-- File Statistics Section -->
+		{#if statistics}
+			<div class="section-title">File Statistics</div>
+			<div class="metrics-grid">
+				<div class="metric">
+					<span class="label">File:</span>
+					<span class="value filename" title={statistics.fileName}>{statistics.fileName}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Size:</span>
+					<span class="value">{formatFileSize(statistics.fileSizeBytes)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Parse Time:</span>
+					<span class="value">{formatTime(statistics.parseTimeMs)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Total Cells:</span>
+					<span class="value">{formatNumber(statistics.totalCells)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Top Cells:</span>
+					<span class="value">{formatNumber(statistics.topCellCount)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Total Polygons:</span>
+					<span class="value">{formatNumber(statistics.totalPolygons)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Total Instances:</span>
+					<span class="value">{formatNumber(statistics.totalInstances)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Layers:</span>
+					<span class="value">{formatNumber(statistics.layerStats.size)}</span>
+				</div>
+
+				<div class="metric">
+					<span class="label">Layout Size:</span>
+					<span class="value">
+						{formatDimension(statistics.layoutWidth)} × {formatDimension(statistics.layoutHeight)}
+					</span>
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}
 
@@ -184,6 +297,24 @@ function formatZoom(zoom: number): string {
 
 	.zoom-thresholds {
 		font-size: 10px;
+	}
+
+	.section-title {
+		margin-top: 12px;
+		margin-bottom: 6px;
+		padding-top: 8px;
+		border-top: 1px solid #444;
+		font-size: 11px;
+		font-weight: bold;
+		color: #888;
+		text-transform: uppercase;
+	}
+
+	.filename {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 180px;
 	}
 </style>
 
