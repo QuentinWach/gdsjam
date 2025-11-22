@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, onDestroy } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import type { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import type { FileStatistics } from "../../types/gds";
 
@@ -9,9 +9,10 @@ interface Props {
 	statistics: FileStatistics | null;
 }
 
-let { renderer, visible, statistics }: Props = $props();
+// biome-ignore lint/correctness/noUnusedVariables: statistics is used in template
+const { renderer, visible, statistics }: Props = $props();
 
-let metrics = $state({
+let _metrics = $state({
 	fps: 0,
 	visiblePolygons: 0,
 	totalPolygons: 0,
@@ -37,7 +38,7 @@ let updateInterval: number | null = null;
 onMount(() => {
 	updateInterval = window.setInterval(() => {
 		if (renderer && visible) {
-			metrics = renderer.getPerformanceMetrics();
+			_metrics = renderer.getPerformanceMetrics();
 		}
 	}, 500);
 });
@@ -49,17 +50,17 @@ onDestroy(() => {
 });
 
 // Format numbers with commas
-function formatNumber(num: number): string {
+function _formatNumber(num: number): string {
 	return num.toLocaleString();
 }
 
 // Format percentage
-function formatPercent(value: number): string {
+function _formatPercent(value: number): string {
 	return `${(value * 100).toFixed(1)}%`;
 }
 
 // Format zoom level with adaptive decimal places
-function formatZoom(zoom: number): string {
+function _formatZoom(zoom: number): string {
 	// Use more decimal places for very small zoom values
 	if (zoom < 0.01) {
 		return `${zoom.toFixed(4)}x`;
@@ -71,7 +72,7 @@ function formatZoom(zoom: number): string {
 }
 
 // Format file size
-function formatFileSize(bytes: number): string {
+function _formatFileSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -79,13 +80,13 @@ function formatFileSize(bytes: number): string {
 }
 
 // Format time
-function formatTime(ms: number): string {
+function _formatTime(ms: number): string {
 	if (ms < 1000) return `${ms.toFixed(0)} ms`;
 	return `${(ms / 1000).toFixed(2)} s`;
 }
 
 // Format dimensions
-function formatDimension(um: number): string {
+function _formatDimension(um: number): string {
 	if (um < 1000) return `${um.toFixed(1)} µm`;
 	if (um < 1000000) return `${(um / 1000).toFixed(2)} mm`;
 	return `${(um / 1000000).toFixed(2)} m`;

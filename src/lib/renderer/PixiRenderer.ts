@@ -6,7 +6,6 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
 import type { BoundingBox, Cell, GDSDocument, Polygon } from "../../types/gds";
 import {
-	DEBUG,
 	FPS_UPDATE_INTERVAL,
 	LOD_CHANGE_COOLDOWN,
 	LOD_DECREASE_THRESHOLD,
@@ -59,6 +58,7 @@ export class PixiRenderer {
 	private currentFPS = 0;
 	private layerVisibility: Map<string, boolean> = new Map();
 	private isRerendering = false;
+	private cellRenderCounts: Map<string, number> = new Map();
 
 	constructor() {
 		this.app = new Application();
@@ -507,27 +507,9 @@ export class PixiRenderer {
 		const visibleIds = new Set(visibleItems.map((item) => item.id));
 
 		const currentZoom = Math.abs(this.mainContainer.scale.x);
-		const viewportWidth = viewportBounds.maxX - viewportBounds.minX;
-		const viewportHeight = viewportBounds.maxY - viewportBounds.minY;
-
-		// Calculate total polygon count from spatial query results
-		let spatialQueryPolygonCount = 0;
-		for (const item of visibleItems) {
-			spatialQueryPolygonCount += item.polygonCount || 0;
-		}
-
-		if (DEBUG) {
-			console.log(
-				`[PixiRenderer] Zoom: ${currentZoom.toFixed(4)}x, Viewport: (${viewportBounds.minX.toFixed(0)}, ${viewportBounds.minY.toFixed(0)}) to (${viewportBounds.maxX.toFixed(0)}, ${viewportBounds.maxY.toFixed(0)}) [${viewportWidth.toFixed(0)} × ${viewportHeight.toFixed(0)}]`,
-			);
-			console.log(
-				`[PixiRenderer] Spatial query returned ${visibleItems.length} items (${spatialQueryPolygonCount} polygons) out of ${this.allGraphicsItems.length} total`,
-			);
-		}
 
 		// Update visibility of all graphics items (combine viewport + layer visibility)
 		let visiblePolygonCount = 0;
-		let visibleGraphicsCount = 0;
 		for (const item of this.allGraphicsItems) {
 			const graphics = item.data as Graphics;
 			const inViewport = visibleIds.has(item.id);
@@ -539,7 +521,6 @@ export class PixiRenderer {
 			const isVisible = inViewport && layerVisible;
 			graphics.visible = isVisible;
 			if (isVisible) {
-				visibleGraphicsCount++;
 				visiblePolygonCount += item.polygonCount || 0;
 			}
 		}
@@ -547,29 +528,11 @@ export class PixiRenderer {
 		// Update cached visible polygon count for performance metrics
 		this.visiblePolygonCount = visiblePolygonCount;
 
-		if (DEBUG) {
-			console.log(
-				`[PixiRenderer] Viewport culling: ${visiblePolygonCount} polygons in ${visibleGraphicsCount}/${this.allGraphicsItems.length} Graphics objects visible`,
-			);
-
-			// Diagnostic: Show sample of visible items
-			if (visibleItems.length > 0 && visibleItems.length < this.allGraphicsItems.length) {
-				const sampleItem = visibleItems[0];
-				if (sampleItem) {
-					console.log(
-						`[PixiRenderer] Sample visible item: bounds=(${sampleItem.minX.toFixed(0)}, ${sampleItem.minY.toFixed(0)}) to (${sampleItem.maxX.toFixed(0)}, ${sampleItem.maxY.toFixed(0)}), polygons=${sampleItem.polygonCount}`,
-					);
-				}
-			}
-		}
-
 		// Check if zoom has changed significantly and trigger LOD update
 		if (this.hasZoomChangedSignificantly(currentZoom)) {
-			if (DEBUG) {
-				console.log(
-					`[PixiRenderer] Zoom threshold crossed! Current: ${currentZoom.toFixed(4)}x, Thresholds: ${this.zoomThresholdLow.toFixed(4)}x - ${this.zoomThresholdHigh.toFixed(4)}x`,
-				);
-			}
+			console.log(
+				`[LOD] Zoom threshold crossed: ${currentZoom.toFixed(4)}x (thresholds: ${this.zoomThresholdLow.toFixed(4)}x - ${this.zoomThresholdHigh.toFixed(4)}x)`,
+			);
 			this.triggerLODRerender();
 		}
 	}
@@ -597,12 +560,6 @@ export class PixiRenderer {
 	private updateZoomThresholds(currentZoom: number): void {
 		this.zoomThresholdLow = currentZoom * LOD_ZOOM_OUT_THRESHOLD;
 		this.zoomThresholdHigh = currentZoom * LOD_ZOOM_IN_THRESHOLD;
-
-		if (DEBUG) {
-			console.log(
-				`[PixiRenderer] Updated zoom thresholds: ${this.zoomThresholdLow.toFixed(2)}x - ${this.zoomThresholdHigh.toFixed(2)}x`,
-			);
-		}
 	}
 
 	/**
@@ -611,18 +568,12 @@ export class PixiRenderer {
 	private triggerLODRerender(): void {
 		// Prevent re-render loops
 		if (this.isRerendering) {
-			if (DEBUG) {
-				console.log("[PixiRenderer] Already re-rendering, skipping LOD trigger");
-			}
 			return;
 		}
 
 		// Check cooldown to prevent thrashing
 		const now = performance.now();
 		if (now - this.lastLODChangeTime < LOD_CHANGE_COOLDOWN) {
-			if (DEBUG) {
-				console.log("[PixiRenderer] LOD change on cooldown, skipping");
-			}
 			return;
 		}
 
@@ -632,35 +583,19 @@ export class PixiRenderer {
 
 		let newDepth = this.currentRenderDepth;
 
-		if (DEBUG) {
-			console.log(
-				`[PixiRenderer] LOD check: depth=${this.currentRenderDepth}, utilization=${(utilization * 100).toFixed(1)}%, thresholds: increase<${(LOD_INCREASE_THRESHOLD * 100).toFixed(0)}%, decrease>${(LOD_DECREASE_THRESHOLD * 100).toFixed(0)}%`,
-			);
-		}
-
 		// Increase depth if we have budget headroom
 		if (utilization < LOD_INCREASE_THRESHOLD && this.currentRenderDepth < LOD_MAX_DEPTH) {
 			newDepth = this.currentRenderDepth + 1;
-			if (DEBUG) {
-				console.log(`[PixiRenderer] LOD: Increasing depth to ${newDepth} (low utilization)`);
-			}
 		}
 		// Decrease depth if we're over budget
 		else if (utilization > LOD_DECREASE_THRESHOLD && this.currentRenderDepth > LOD_MIN_DEPTH) {
 			newDepth = this.currentRenderDepth - 1;
-			if (DEBUG) {
-				console.log(`[PixiRenderer] LOD: Decreasing depth to ${newDepth} (high utilization)`);
-			}
-		} else {
-			if (DEBUG) {
-				console.log(`[PixiRenderer] LOD: No depth change needed`);
-			}
 		}
 
 		// Only re-render if depth actually changed
 		if (newDepth !== this.currentRenderDepth) {
 			console.log(
-				`[PixiRenderer] LOD depth change: ${this.currentRenderDepth} → ${newDepth} (utilization: ${(utilization * 100).toFixed(1)}%)`,
+				`[LOD] Depth change: ${this.currentRenderDepth} → ${newDepth} (utilization: ${(utilization * 100).toFixed(1)}%, visible: ${metrics.visiblePolygons.toLocaleString()}/${metrics.polygonBudget.toLocaleString()})`,
 			);
 
 			this.currentRenderDepth = newDepth;
@@ -681,14 +616,14 @@ export class PixiRenderer {
 	 */
 	private async performIncrementalRerender(): Promise<void> {
 		if (!this.currentDocument) {
-			console.warn("[PixiRenderer] No document to re-render");
+			console.warn("[LOD] No document to re-render");
 			return;
 		}
 
 		// Set flag to prevent re-render loops
 		this.isRerendering = true;
 
-		console.log(`[PixiRenderer] Starting incremental re-render at depth ${this.currentRenderDepth}`);
+		console.log(`[LOD] Starting re-render at depth ${this.currentRenderDepth}`);
 
 		// Save viewport state
 		const viewportState = this.getViewportState();
@@ -724,13 +659,13 @@ export class PixiRenderer {
 		}
 		oldMainContainer.destroy();
 
-		console.log("[PixiRenderer] Incremental re-render complete");
+		console.log(
+			`[LOD] Re-render complete: ${this.totalRenderedPolygons.toLocaleString()} polygons in ${this.allGraphicsItems.length} tiles`,
+		);
 
 		// Clear flag
 		this.isRerendering = false;
 	}
-
-
 
 	/**
 	 * Get current viewport bounds in world coordinates
@@ -745,24 +680,12 @@ export class PixiRenderer {
 
 		// Account for Y-axis flip
 		if (scaleY < 0) {
-			const bounds = {
+			return {
 				minX: x,
 				minY: y - height,
 				maxX: x + width,
 				maxY: y,
 			};
-
-			if (DEBUG && Math.random() < 0.05) {
-				// Log occasionally to verify bounds calculation
-				console.log(
-					`[PixiRenderer] getViewportBounds: scale=${scale.toFixed(4)}, scaleY=${scaleY.toFixed(4)}, container.x=${this.mainContainer.x.toFixed(0)}, container.y=${this.mainContainer.y.toFixed(0)}`,
-				);
-				console.log(
-					`[PixiRenderer] getViewportBounds: screen=${this.app.screen.width}x${this.app.screen.height}, world bounds=(${bounds.minX.toFixed(0)}, ${bounds.minY.toFixed(0)}) to (${bounds.maxX.toFixed(0)}, ${bounds.maxY.toFixed(0)})`,
-				);
-			}
-
-			return bounds;
 		}
 
 		return {
@@ -926,17 +849,11 @@ export class PixiRenderer {
 		onProgress?: RenderProgressCallback,
 		skipFitToView = false,
 	): Promise<void> {
-		console.log("[PixiRenderer] Rendering GDS document:", document.name);
-		console.log(
-			`[PixiRenderer] ${document.cells.size} cells, ${document.layers.size} layers, ${document.topCells.length} top cells`,
-		);
-
 		// Store document for incremental re-rendering
 		this.currentDocument = document;
 		this.documentUnits = document.units;
 
 		onProgress?.(0, "Preparing to render...");
-		console.log("[PixiRenderer] Progress: 0% - Preparing to render...");
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		this.clear();
 
@@ -945,8 +862,36 @@ export class PixiRenderer {
 		if (!this.isRerendering) {
 			this.currentRenderDepth = 0;
 		}
+
+		// Scale budget based on depth to handle hierarchical designs
+		// At depth 0: 100K budget (safe baseline)
+		// At depth 1: 150K budget (1.5x for one level of hierarchy)
+		// At depth 2: 200K budget (2x for two levels)
+		// At depth 3+: 250K budget (2.5x for three+ levels)
+		// Cap at 250K to prevent OOM crashes
+		const budgetMultipliers = [1, 1.5, 2, 2.5];
+		const budgetMultiplier = budgetMultipliers[Math.min(this.currentRenderDepth, 3)] ?? 1;
+		const scaledBudget = Math.floor(this.maxPolygonsPerRender * budgetMultiplier);
+
+		console.log(
+			`[Render] Starting render: depth=${this.currentRenderDepth}, budget=${scaledBudget.toLocaleString()} (${budgetMultiplier}x base)`,
+		);
+
+		// Reset cell render tracking
+		this.cellRenderCounts.clear();
+
+		// Log top cell structure for debugging
+		for (const topCellName of document.topCells) {
+			const cell = document.cells.get(topCellName);
+			if (cell) {
+				console.log(
+					`[Render] Top cell "${topCellName}": ${cell.polygons.length.toLocaleString()} polygons, ${cell.instances.length.toLocaleString()} instances`,
+				);
+			}
+		}
+
 		let totalPolygons = 0;
-		let polygonBudget = this.maxPolygonsPerRender;
+		let polygonBudget = scaledBudget;
 
 		// Calculate total polygons for progress tracking
 		let totalPolygonCount = 0;
@@ -969,15 +914,8 @@ export class PixiRenderer {
 				// More granular progress based on polygon count
 				const baseProgress = Math.floor((processedPolygons / totalPolygonCount) * 80);
 				const message = `Rendering ${topCellName} (${cell.polygons.length} polygons)...`;
-				console.log(`[PixiRenderer] Progress: ${baseProgress}% - ${message}`);
 				onProgress?.(baseProgress, message);
 				await new Promise((resolve) => setTimeout(resolve, 0));
-
-				if (DEBUG) {
-					console.log(
-						`[PixiRenderer] Rendering top cell: ${topCellName} (${cell.polygons.length} polygons, ${cell.instances.length} instances)`,
-					);
-				}
 
 				const rendered = await this.renderCellGeometry(
 					cell,
@@ -1004,13 +942,12 @@ export class PixiRenderer {
 				// Update progress after rendering this cell
 				const afterProgress = Math.floor((processedPolygons / totalPolygonCount) * 80);
 				const afterMessage = `Rendered ${topCellName}`;
-				console.log(`[PixiRenderer] Progress: ${afterProgress}% - ${afterMessage}`);
 				onProgress?.(afterProgress, afterMessage);
 				await new Promise((resolve) => setTimeout(resolve, 0));
 
 				if (polygonBudget <= 0) {
 					console.warn(
-						`[PixiRenderer] Polygon budget exhausted (${this.maxPolygonsPerRender}), stopping render`,
+						`[Render] Budget exhausted (${this.maxPolygonsPerRender.toLocaleString()}), stopping render`,
 					);
 					break;
 				}
@@ -1022,11 +959,21 @@ export class PixiRenderer {
 
 		const renderTime = performance.now() - startTime;
 		console.log(
-			`[PixiRenderer] Rendered ${totalPolygons} polygons in ${renderTime.toFixed(0)}ms (${this.allGraphicsItems.length} Graphics objects, depth=${this.currentRenderDepth})`,
+			`[Render] Complete: ${totalPolygons.toLocaleString()} polygons in ${renderTime.toFixed(0)}ms (${this.allGraphicsItems.length} tiles, depth=${this.currentRenderDepth})`,
 		);
 
+		// Log cell render statistics to detect instance explosion
+		const topCells = Array.from(this.cellRenderCounts.entries())
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 10);
+		if (topCells.length > 0) {
+			console.log("[Render] Top 10 most rendered cells:");
+			for (const [cellName, count] of topCells) {
+				console.log(`  ${cellName}: ${count} times`);
+			}
+		}
+
 		if (!skipFitToView) {
-			console.log("[PixiRenderer] Progress: 90% - Fitting to view...");
 			onProgress?.(90, "Fitting to view...");
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			this.fitToView();
@@ -1035,9 +982,7 @@ export class PixiRenderer {
 		}
 		this.updateViewport();
 
-		console.log("[PixiRenderer] Progress: 100% - Render complete!");
 		onProgress?.(100, "Render complete!");
-		console.log("[PixiRenderer] Initial render complete");
 	}
 
 	/**
@@ -1060,11 +1005,9 @@ export class PixiRenderer {
 		polygonBudget: number,
 		onProgress?: (progress: number, message: string) => void,
 	): Promise<number> {
-		if (DEBUG) {
-			console.log(
-				`[PixiRenderer] renderCellGeometry: ${cell.name} at (${x}, ${y}) depth=${maxDepth} budget=${polygonBudget}`,
-			);
-		}
+		// Track how many times each cell is rendered (for debugging instance explosion)
+		const currentCount = this.cellRenderCounts.get(cell.name) || 0;
+		this.cellRenderCounts.set(cell.name, currentCount + 1);
 
 		// Stop if budget exhausted
 		if (polygonBudget <= 0) {
@@ -1085,18 +1028,28 @@ export class PixiRenderer {
 		const tileBounds = new Map<string, BoundingBox>();
 		const tilePolygonCounts = new Map<string, number>();
 
+		// Reserve budget for instances when maxDepth > 0
+		// At depth 0: Use 100% budget for direct polygons (no instances rendered)
+		// At depth 1+: Use 70% budget for direct polygons, reserve 30% for instances
+		// More conservative to prevent OOM from deep hierarchies
+		let directPolygonBudget = polygonBudget;
+		if (maxDepth > 0) {
+			directPolygonBudget = Math.floor(polygonBudget * 0.7);
+			console.log(
+				`[Render] Cell ${cell.name}: Reserving budget for instances (${directPolygonBudget.toLocaleString()} for direct polygons, ${(polygonBudget - directPolygonBudget).toLocaleString()} for instances)`,
+			);
+		}
+
 		let renderedPolygons = 0;
 		const totalPolygonsInCell = cell.polygons.length;
 		const yieldInterval = 10000; // Yield every 10k polygons for UI updates
 
 		for (let i = 0; i < totalPolygonsInCell; i++) {
 			// Check budget before rendering each polygon
-			if (renderedPolygons >= polygonBudget) {
-				if (DEBUG) {
-					console.log(
-						`[PixiRenderer] Budget exhausted while rendering ${cell.name}: ${renderedPolygons}/${totalPolygonsInCell} polygons rendered`,
-					);
-				}
+			if (renderedPolygons >= directPolygonBudget) {
+				console.log(
+					`[Render] Cell ${cell.name}: Direct polygon budget exhausted (${renderedPolygons.toLocaleString()}/${totalPolygonsInCell.toLocaleString()} rendered)`,
+				);
 				break;
 			}
 
@@ -1183,17 +1136,15 @@ export class PixiRenderer {
 			this.allGraphicsItems.push(item);
 		}
 
-		if (DEBUG && renderedPolygons > 0) {
-			console.log(
-				`[PixiRenderer] Rendered ${renderedPolygons} polygons in ${tileGraphics.size} spatial tiles for cell ${cell.name}`,
-			);
-		}
-
 		// Render instances (recursive) only if we have depth budget
 		let totalPolygons = renderedPolygons;
 		let remainingBudget = polygonBudget - renderedPolygons;
 
 		if (maxDepth > 0 && remainingBudget > 0) {
+			console.log(
+				`[Render] Cell ${cell.name}: Rendering ${cell.instances.length} instances at depth ${maxDepth}`,
+			);
+
 			for (const instance of cell.instances) {
 				if (remainingBudget <= 0) break;
 
@@ -1215,6 +1166,10 @@ export class PixiRenderer {
 					remainingBudget -= rendered;
 				}
 			}
+
+			console.log(
+				`[Render] Cell ${cell.name}: Rendered ${totalPolygons - renderedPolygons} polygons from instances`,
+			);
 		}
 
 		this.mainContainer.addChild(cellContainer);
@@ -1361,22 +1316,19 @@ export class PixiRenderer {
 	 * Get performance metrics for display (returns cached values)
 	 */
 	getPerformanceMetrics() {
-		const budgetUtilization = this.visiblePolygonCount / this.maxPolygonsPerRender;
+		// Calculate scaled budget based on current depth (must match renderGDSDocument)
+		const budgetMultipliers = [1, 1.5, 2, 2.5];
+		const budgetMultiplier = budgetMultipliers[Math.min(this.currentRenderDepth, 3)] ?? 1;
+		const scaledBudget = Math.floor(this.maxPolygonsPerRender * budgetMultiplier);
+		const budgetUtilization = this.visiblePolygonCount / scaledBudget;
 		const viewportBounds = this.getViewportBounds();
 		const zoomLevel = Math.abs(this.mainContainer.scale.x);
-
-		if (DEBUG && Math.random() < 0.1) {
-			// Log occasionally (10% of calls) to avoid spam
-			console.log(
-				`[PixiRenderer] getPerformanceMetrics: zoom=${zoomLevel.toFixed(4)}x, visiblePolygons=${this.visiblePolygonCount}, thresholds=${this.zoomThresholdLow.toFixed(4)}x/${this.zoomThresholdHigh.toFixed(4)}x`,
-			);
-		}
 
 		return {
 			fps: this.currentFPS,
 			visiblePolygons: this.visiblePolygonCount,
 			totalPolygons: this.totalRenderedPolygons,
-			polygonBudget: this.maxPolygonsPerRender,
+			polygonBudget: scaledBudget,
 			budgetUtilization,
 			currentDepth: this.currentRenderDepth,
 			zoomLevel,

@@ -52,7 +52,7 @@ export const LOD_ZOOM_IN_THRESHOLD = 2.0; // Trigger LOD update at 2.0x zoom (2x
 
 // LOD depth limits
 export const LOD_MIN_DEPTH = 0;
-export const LOD_MAX_DEPTH = 10;
+export const LOD_MAX_DEPTH = 3; // Limit to 3 to prevent instance explosion (until proper cell instancing is implemented)
 
 /**
  * Spatial Tiling Configuration
