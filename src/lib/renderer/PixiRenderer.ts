@@ -1183,7 +1183,6 @@ export class PixiRenderer {
 		const currentScale = overrideScale ?? this.mainContainer.scale.x;
 		const desiredScreenPixels = 2.0;
 		const strokeWidthDB = desiredScreenPixels / currentScale;
-		const fillStrokeWidthDB = 0.5 / currentScale;
 
 		console.log(
 			`[Render] Cell ${cell.name}: strokeWidthDB=${strokeWidthDB.toExponential(2)} DB units, scale=${currentScale.toExponential(3)}, expected screen pixels=${desiredScreenPixels}`,
@@ -1253,7 +1252,7 @@ export class PixiRenderer {
 			}
 
 			// Add polygon to batched graphics
-			this.addPolygonToGraphics(graphics, polygon, layer.color, strokeWidthDB, fillStrokeWidthDB);
+			this.addPolygonToGraphics(graphics, polygon, layer.color, strokeWidthDB);
 			renderedPolygons++;
 
 			// Increment polygon count for this tile
@@ -1347,14 +1346,12 @@ export class PixiRenderer {
 	/**
 	 * Add a polygon to an existing Graphics object (for batched rendering)
 	 * @param strokeWidthDB - Stroke width in database units for outline mode (calculated once per render pass)
-	 * @param fillStrokeWidthDB - Stroke width in database units for filled mode (calculated once per render pass)
 	 */
 	private addPolygonToGraphics(
 		graphics: Graphics,
 		polygon: Polygon,
 		colorHex: string,
 		strokeWidthDB: number,
-		fillStrokeWidthDB: number,
 	): void {
 		// Convert hex color to number
 		const color = Number.parseInt(colorHex.replace("#", ""), 16);
@@ -1373,9 +1370,8 @@ export class PixiRenderer {
 
 			// Apply fill and/or stroke based on mode
 			if (this.fillPolygons) {
-				// Filled mode: fill + thin stroke
+				// Filled mode: fill only, no stroke
 				graphics.fill({ color, alpha: 0.7 });
-				graphics.stroke({ color, width: fillStrokeWidthDB, alpha: 0.9 });
 			} else {
 				// Outline only mode: no fill, thicker stroke
 				graphics.stroke({ color, width: strokeWidthDB, alpha: 1.0 });
