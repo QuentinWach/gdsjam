@@ -136,6 +136,12 @@ export class PixiRenderer {
 		this.setupControls();
 		this.performGridUpdate();
 		this.performScaleBarUpdate();
+
+		// Listen for layer visibility changes
+		window.addEventListener(
+			"layer-visibility-changed",
+			this.handleLayerVisibilityChange.bind(this),
+		);
 	}
 
 	/**
@@ -501,6 +507,7 @@ export class PixiRenderer {
 	 */
 	private performViewportUpdate(): void {
 		if (this.allGraphicsItems.length === 0) {
+			console.log("[PixiRenderer] performViewportUpdate: No graphics items");
 			return;
 		}
 
@@ -512,6 +519,10 @@ export class PixiRenderer {
 
 		// Update visibility of all graphics items (combine viewport + layer visibility)
 		let visiblePolygonCount = 0;
+		let hiddenByLayerCount = 0;
+		let visibleByLayerCount = 0;
+		const layerCounts = new Map<string, { total: number; visible: number }>();
+
 		for (const item of this.allGraphicsItems) {
 			const graphics = item.data as Graphics;
 			const inViewport = visibleIds.has(item.id);
@@ -522,10 +533,37 @@ export class PixiRenderer {
 
 			const isVisible = inViewport && layerVisible;
 			graphics.visible = isVisible;
+
+			// Track per-layer counts
+			if (!layerCounts.has(layerKey)) {
+				layerCounts.set(layerKey, { total: 0, visible: 0 });
+			}
+			const counts = layerCounts.get(layerKey)!;
+			counts.total++;
+			if (isVisible) counts.visible++;
+
+			if (inViewport) {
+				if (layerVisible) {
+					visibleByLayerCount++;
+				} else {
+					hiddenByLayerCount++;
+				}
+			}
+
 			if (isVisible) {
 				visiblePolygonCount += item.polygonCount || 0;
 			}
 		}
+
+		console.log(
+			`[PixiRenderer] performViewportUpdate: ${this.allGraphicsItems.length} total items, ${visibleIds.size} in viewport, ${visibleByLayerCount} visible by layer, ${hiddenByLayerCount} hidden by layer`,
+		);
+		console.log(
+			`[PixiRenderer] Layer breakdown:`,
+			Array.from(layerCounts.entries())
+				.map(([key, counts]) => `${key}: ${counts.visible}/${counts.total}`)
+				.join(", "),
+		);
 
 		// Update cached visible polygon count for performance metrics
 		this.visiblePolygonCount = visiblePolygonCount;
@@ -536,6 +574,87 @@ export class PixiRenderer {
 				`[LOD] Zoom threshold crossed: ${currentZoom.toFixed(4)}x (thresholds: ${this.zoomThresholdLow.toFixed(4)}x - ${this.zoomThresholdHigh.toFixed(4)}x)`,
 			);
 			this.triggerLODRerender();
+		}
+	}
+
+	/**
+	 * Handle layer visibility change events from LayerPanel
+	 */
+	private handleLayerVisibilityChange(e: Event): void {
+		const customEvent = e as CustomEvent;
+		this.updateLayerVisibility(customEvent.detail.visibility);
+	}
+
+	/**
+	 * Update layer visibility and update viewport to show/hide layers
+	 */
+	private updateLayerVisibility(visibility: { [key: string]: boolean }): void {
+		console.log("[PixiRenderer] Updating layer visibility", visibility);
+
+		// Detect newly visible layers that need to be rendered
+		const newlyVisibleLayers: string[] = [];
+		for (const [key, visible] of Object.entries(visibility)) {
+			const wasVisible = this.layerVisibility.get(key) ?? true;
+			if (visible && !wasVisible) {
+				// Check if this layer has any rendered graphics
+				const hasGraphics = this.allGraphicsItems.some(
+					(item) => `${item.layer}:${item.datatype}` === key,
+				);
+				if (!hasGraphics) {
+					newlyVisibleLayers.push(key);
+				}
+			}
+		}
+
+		// Update internal visibility map
+		this.layerVisibility.clear();
+		for (const [key, visible] of Object.entries(visibility)) {
+			this.layerVisibility.set(key, visible);
+		}
+
+		console.log("[PixiRenderer] Internal layerVisibility map updated:", this.layerVisibility);
+
+		// If there are newly visible layers that haven't been rendered, render them
+		if (newlyVisibleLayers.length > 0) {
+			console.log("[PixiRenderer] Rendering newly visible layers:", newlyVisibleLayers);
+			this.renderLayers(newlyVisibleLayers);
+		} else {
+			// Update graphics visibility (combines layer visibility + viewport culling)
+			// This will immediately show/hide the already-rendered graphics without re-rendering
+			this.performViewportUpdate();
+		}
+	}
+
+	/**
+	 * Render specific layers on-demand (when they're toggled visible)
+	 */
+	private async renderLayers(layerKeys: string[]): Promise<void> {
+		if (!this.currentDocument) {
+			console.warn("[PixiRenderer] No document to render layers from");
+			return;
+		}
+
+		console.log(`[PixiRenderer] Rendering ${layerKeys.length} layers on-demand`);
+
+		// Temporarily enable these layers in the document
+		const originalVisibility = new Map<string, boolean>();
+		for (const key of layerKeys) {
+			const layer = this.currentDocument.layers.get(key);
+			if (layer) {
+				originalVisibility.set(key, layer.visible);
+				layer.visible = true;
+			}
+		}
+
+		// Trigger incremental re-render to include the newly visible layers
+		await this.performIncrementalRerender();
+
+		// Restore original visibility (the layerVisibility map will control actual visibility)
+		for (const [key, visible] of originalVisibility) {
+			const layer = this.currentDocument.layers.get(key);
+			if (layer) {
+				layer.visible = visible;
+			}
 		}
 	}
 
@@ -674,6 +793,9 @@ export class PixiRenderer {
 		console.log(
 			`[LOD] Re-render complete: ${this.totalRenderedPolygons.toLocaleString()} polygons in ${this.allGraphicsItems.length} tiles`,
 		);
+
+		// Apply layer visibility to newly created graphics
+		this.performViewportUpdate();
 
 		// Clear flag
 		this.isRerendering = false;
@@ -1061,7 +1183,6 @@ export class PixiRenderer {
 		const currentScale = overrideScale ?? this.mainContainer.scale.x;
 		const desiredScreenPixels = 2.0;
 		const strokeWidthDB = desiredScreenPixels / currentScale;
-		const fillStrokeWidthDB = 0.5 / currentScale;
 
 		console.log(
 			`[Render] Cell ${cell.name}: strokeWidthDB=${strokeWidthDB.toExponential(2)} DB units, scale=${currentScale.toExponential(3)}, expected screen pixels=${desiredScreenPixels}`,
@@ -1131,7 +1252,7 @@ export class PixiRenderer {
 			}
 
 			// Add polygon to batched graphics
-			this.addPolygonToGraphics(graphics, polygon, layer.color, strokeWidthDB, fillStrokeWidthDB);
+			this.addPolygonToGraphics(graphics, polygon, layer.color, strokeWidthDB);
 			renderedPolygons++;
 
 			// Increment polygon count for this tile
@@ -1225,14 +1346,12 @@ export class PixiRenderer {
 	/**
 	 * Add a polygon to an existing Graphics object (for batched rendering)
 	 * @param strokeWidthDB - Stroke width in database units for outline mode (calculated once per render pass)
-	 * @param fillStrokeWidthDB - Stroke width in database units for filled mode (calculated once per render pass)
 	 */
 	private addPolygonToGraphics(
 		graphics: Graphics,
 		polygon: Polygon,
 		colorHex: string,
 		strokeWidthDB: number,
-		fillStrokeWidthDB: number,
 	): void {
 		// Convert hex color to number
 		const color = Number.parseInt(colorHex.replace("#", ""), 16);
@@ -1251,9 +1370,8 @@ export class PixiRenderer {
 
 			// Apply fill and/or stroke based on mode
 			if (this.fillPolygons) {
-				// Filled mode: fill + thin stroke
+				// Filled mode: fill only, no stroke
 				graphics.fill({ color, alpha: 0.7 });
-				graphics.stroke({ color, width: fillStrokeWidthDB, alpha: 0.9 });
 			} else {
 				// Outline only mode: no fill, thicker stroke
 				graphics.stroke({ color, width: strokeWidthDB, alpha: 1.0 });
@@ -1412,6 +1530,11 @@ export class PixiRenderer {
 	 * Destroy the renderer
 	 */
 	destroy(): void {
+		// Remove event listener
+		window.removeEventListener(
+			"layer-visibility-changed",
+			this.handleLayerVisibilityChange.bind(this),
+		);
 		this.app.destroy(true, { children: true, texture: true });
 	}
 

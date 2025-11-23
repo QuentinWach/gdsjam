@@ -3,7 +3,10 @@ import { onDestroy, onMount } from "svelte";
 import { DEBUG } from "../../lib/config";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { gdsStore } from "../../stores/gdsStore";
+import { layerStore } from "../../stores/layerStore";
 import type { GDSDocument } from "../../types/gds";
+// biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
+import LayerPanel from "../ui/LayerPanel.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import PerformancePanel from "../ui/PerformancePanel.svelte";
 
@@ -11,6 +14,8 @@ let canvas: HTMLCanvasElement;
 let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
 let panelsVisible = $state(false);
+let layerPanelVisible = $state(false);
+let layerStoreInitialized = false;
 
 onMount(async () => {
 	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
@@ -35,10 +40,17 @@ onMount(async () => {
 
 	// Add keyboard event listeners
 	const handleKeyPress = (e: KeyboardEvent) => {
-		// 'P' key to toggle panels
+		// 'P' key to toggle performance panels
 		if (e.key === "p" || e.key === "P") {
 			panelsVisible = !panelsVisible;
 			if (DEBUG) console.log(`[ViewerCanvas] Panels ${panelsVisible ? "shown" : "hidden"}`);
+		}
+
+		// 'L' key to toggle layer panel
+		if (e.key === "l" || e.key === "L") {
+			layerPanelVisible = !layerPanelVisible;
+			if (DEBUG)
+				console.log(`[ViewerCanvas] Layer panel ${layerPanelVisible ? "shown" : "hidden"}`);
 		}
 
 		// 'O' key to toggle polygon fill mode (Outline)
@@ -66,6 +78,8 @@ $effect(() => {
 	if (renderer?.isReady() && gdsDocument && gdsDocument !== lastRenderedDocument) {
 		console.log("[ViewerCanvas] Rendering document:", gdsDocument.name);
 		lastRenderedDocument = gdsDocument;
+		// Reset layer store initialization flag when new document is loaded
+		layerStoreInitialized = false;
 		gdsStore.setRendering(true, "Rendering...", 0);
 		(async () => {
 			await renderer.renderGDSDocument(gdsDocument, (progress, message) => {
@@ -77,11 +91,23 @@ $effect(() => {
 		})();
 	}
 });
+
+// Initialize layer store when document is FIRST loaded (not on every update)
+$effect(() => {
+	const gdsDocument = $gdsStore.document;
+	if (gdsDocument && !layerStoreInitialized) {
+		layerStore.setLayers(gdsDocument.layers);
+		layerStoreInitialized = true;
+		if (DEBUG)
+			console.log("[ViewerCanvas] Initialized layer store with", gdsDocument.layers.size, "layers");
+	}
+});
 </script>
 
 <div class="viewer-container">
 	<canvas bind:this={canvas} class="viewer-canvas"></canvas>
 	<PerformancePanel {renderer} statistics={$gdsStore.statistics} visible={panelsVisible} />
+	<LayerPanel statistics={$gdsStore.statistics} visible={layerPanelVisible} />
 </div>
 
 <style>
