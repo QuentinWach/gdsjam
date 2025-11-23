@@ -1491,7 +1491,13 @@ export class PixiRenderer {
 		strokeWidthDB: number,
 	): void {
 		// Convert hex color to number
-		const color = Number.parseInt(colorHex.replace("#", ""), 16);
+		let color = Number.parseInt(colorHex.replace("#", ""), 16);
+
+		// Validate color and use default if invalid
+		if (Number.isNaN(color)) {
+			console.warn(`[PixiRenderer] Invalid color: "${colorHex}", using default blue`);
+			color = 0x4a9eff; // Default blue
+		}
 
 		// Draw polygon
 		if (polygon.points.length > 0 && polygon.points[0]) {
