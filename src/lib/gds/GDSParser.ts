@@ -3,7 +3,7 @@
  * Converts GDSII binary format to internal GDSDocument format
  */
 
-import { parseGDS, RecordType } from "gdsii";
+import { GDSParseError, parseGDS, RecordType } from "gdsii";
 import type {
 	BoundingBox,
 	Cell,
@@ -105,6 +105,207 @@ function calculateBoundingBox(points: Point[]): BoundingBox {
 export type ParseProgressCallback = (progress: number, message: string) => void;
 
 /**
+ * Detect file format and provide helpful error messages
+ */
+function detectFileFormat(fileData: Uint8Array): string {
+	if (fileData.length < 4) {
+		return "File too small";
+	}
+
+	// Check for common compression/archive formats
+	const magic = new Uint8Array(fileData.buffer, 0, Math.min(fileData.length, 8));
+
+	// GZIP: 1f 8b
+	if (magic[0] === 0x1f && magic[1] === 0x8b) {
+		return "GZIP compressed file (.gz)";
+	}
+
+	// ZIP: 50 4b (PK)
+	if (magic[0] === 0x50 && magic[1] === 0x4b) {
+		return "ZIP archive";
+	}
+
+	// BZ2: 42 5a (BZ)
+	if (magic[0] === 0x42 && magic[1] === 0x5a) {
+		return "BZIP2 compressed file (.bz2)";
+	}
+
+	// Check if it looks like ASCII text (common for ASCII GDSII or other text formats)
+	let asciiCount = 0;
+	const sampleSize = Math.min(100, fileData.length);
+	for (let i = 0; i < sampleSize; i++) {
+		const byte = i < magic.length ? magic[i] : fileData[i];
+		if (byte === undefined) continue;
+		// Printable ASCII or whitespace
+		if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+			asciiCount++;
+		}
+	}
+
+	if (asciiCount > sampleSize * 0.9) {
+		// Try to detect specific text formats
+		const textDecoder = new TextDecoder();
+		const header = textDecoder.decode(
+			new Uint8Array(fileData.buffer, 0, Math.min(200, fileData.length)),
+		);
+
+		// Check for DXF format (AutoCAD Drawing Exchange Format)
+		if (header.includes("SECTION") && (header.includes("HEADER") || header.includes("ENTITIES"))) {
+			return "DXF (AutoCAD Drawing Exchange Format)";
+		}
+
+		if (header.includes("HEADER") || header.includes("BGNLIB") || header.includes("STRNAME")) {
+			return "ASCII GDSII format";
+		}
+
+		return "Text file (GDSII must be in binary format)";
+	}
+
+	return "Unknown binary format";
+}
+
+/**
+ * Validate GDSII file format
+ */
+function validateGDSIIFormat(fileData: Uint8Array): void {
+	if (fileData.length < 4) {
+		throw new Error("File too small to be a valid GDSII file (minimum 4 bytes required).");
+	}
+
+	// Check for HEADER record (should be first record)
+	const dataView = new DataView(fileData.buffer);
+	const firstRecordLength = dataView.getUint16(0, false); // Big-endian
+	const firstRecordTag = dataView.getUint16(2, false); // Big-endian
+
+	// Also check little-endian in case of byte-order issues
+	const firstRecordLengthLE = dataView.getUint16(0, true);
+	const firstRecordTagLE = dataView.getUint16(2, true);
+
+	// Log first few bytes for debugging
+	if (DEBUG) {
+		const firstBytes = Array.from(fileData.slice(0, 16))
+			.map((b) => b.toString(16).padStart(2, "0"))
+			.join(" ");
+		console.log("[GDSParser] First 16 bytes (hex):", firstBytes);
+		console.log("[GDSParser] Big-endian - Length:", firstRecordLength, "Tag:", firstRecordTag);
+		console.log(
+			"[GDSParser] Little-endian - Length:",
+			firstRecordLengthLE,
+			"Tag:",
+			firstRecordTagLE,
+		);
+	}
+
+	if (firstRecordLength < 4 || firstRecordLength % 2 !== 0) {
+		const detectedFormat = detectFileFormat(fileData);
+		throw new Error(
+			`Invalid GDSII format: First record has invalid length ${firstRecordLength}. ` +
+				`Detected format: ${detectedFormat}. ` +
+				`Please ensure you're loading a binary GDSII file (.gds or .gdsii).`,
+		);
+	}
+
+	if (firstRecordTag !== RecordType.HEADER) {
+		const detectedFormat = detectFileFormat(fileData);
+
+		// Check if little-endian would work (wrong byte order)
+		if (firstRecordTagLE === RecordType.HEADER) {
+			throw new Error(
+				`Invalid GDSII format: File appears to be in little-endian byte order, but GDSII requires big-endian. ` +
+					`The file may have been created with incorrect byte ordering.`,
+			);
+		}
+
+		// Provide helpful error message based on detected format
+		let errorMsg = `Invalid GDSII format: Expected HEADER record (tag ${RecordType.HEADER}), got tag ${firstRecordTag} (0x${firstRecordTag.toString(16)}). `;
+		errorMsg += `Detected format: ${detectedFormat}.\n\n`;
+
+		if (detectedFormat.includes("compressed") || detectedFormat.includes("ZIP")) {
+			errorMsg += "Please decompress the file first before loading.";
+		} else if (detectedFormat.includes("DXF")) {
+			errorMsg +=
+				"This is a DXF file! DXF conversion is supported, but the file needs a .dxf extension.\n\n" +
+				"Please rename your file to have a .dxf extension and try again.\n\n" +
+				"Alternatively, you can convert DXF to GDSII using:\n" +
+				"• KLayout: File → Import → DXF, then File → Save As → GDS\n" +
+				"• Online converters or CAD tools that support both formats";
+		} else if (detectedFormat.includes("ASCII")) {
+			errorMsg +=
+				"This viewer only supports binary GDSII format.\n\n" +
+				"To convert ASCII GDSII to binary format, you can use:\n" +
+				"• KLayout: File → Import → ASCII GDSII, then File → Save As → GDS\n" +
+				"• gdstk (Python): gdstk.read_gds() with ascii=True, then write binary\n" +
+				"• Online converters or CAD tools that support both formats\n\n" +
+				"Alternatively, if you have the original source, export it as binary GDSII (.gds) instead of ASCII.";
+		} else {
+			errorMsg += "File may be corrupted or not a valid binary GDSII file.";
+		}
+
+		throw new Error(errorMsg);
+	}
+
+	if (DEBUG) {
+		console.log("[GDSParser] GDSII format validation passed");
+	}
+}
+
+/**
+ * Get record type name for debugging
+ */
+function getRecordTypeName(tag: number): string {
+	// RecordType is an enum, so we can look up the name
+	const name = RecordType[tag];
+	return name ? `${name} (${tag})` : `Unknown (${tag})`;
+}
+
+/**
+ * Parse GDSII with enhanced error reporting
+ * This wrapper catches parse errors and provides better diagnostic information
+ */
+function parseGDSWithDiagnostics(fileData: Uint8Array): Array<{ tag: number; data: any }> {
+	const records: Array<{ tag: number; data: any }> = [];
+	let recordCount = 0;
+	let lastSuccessfulTag: number | null = null;
+
+	try {
+		for (const record of parseGDS(fileData)) {
+			records.push(record);
+			lastSuccessfulTag = record.tag;
+			recordCount++;
+		}
+	} catch (error) {
+		if (error instanceof GDSParseError) {
+			const errorMsg = error.message;
+			const lastRecordInfo =
+				lastSuccessfulTag !== null ? getRecordTypeName(lastSuccessfulTag) : "none";
+
+			console.error("[GDSParser] Parse error details:", {
+				error: errorMsg,
+				recordsParsed: recordCount,
+				lastSuccessfulRecord: lastRecordInfo,
+			});
+
+			// Provide more helpful error message
+			if (errorMsg.includes("Unknown record type")) {
+				throw new Error(
+					`GDSII parsing failed at record ${recordCount + 1} (after ${lastRecordInfo}): ${errorMsg}. ` +
+						`This file may contain unsupported record types or be corrupted. ` +
+						`Successfully parsed ${recordCount} records before failure.`,
+				);
+			}
+
+			throw new Error(
+				`GDSII parsing failed at record ${recordCount + 1} (after ${lastRecordInfo}): ${errorMsg}. ` +
+					`Successfully parsed ${recordCount} records before failure.`,
+			);
+		}
+		throw error;
+	}
+
+	return records;
+}
+
+/**
  * Parse GDSII file and convert to GDSDocument
  */
 export async function parseGDSII(
@@ -128,10 +329,17 @@ export async function parseGDSII(
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		const fileData = new Uint8Array(fileBuffer);
 
+		// Validate file format before parsing
+		onProgress?.(15, "Validating file format...");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		validateGDSIIFormat(fileData);
+
 		onProgress?.(20, "Parsing GDSII records...");
 		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		// Parse records with enhanced diagnostics
 		// biome-ignore lint/suspicious/noExplicitAny: External library returns unknown data types
-		const records = Array.from(parseGDS(fileData)) as Array<{ tag: number; data: any }>;
+		const records: Array<{ tag: number; data: any }> = parseGDSWithDiagnostics(fileData);
 
 		if (DEBUG) {
 			console.log(`[GDSParser] Parsed ${records.length} records`);

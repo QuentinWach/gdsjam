@@ -98,7 +98,7 @@ function triggerFileInput() {
 >
 	<input
 		type="file"
-		accept=".gds,.gdsii"
+		accept=".gds,.gdsii,.dxf"
 		bind:this={fileInputElement}
 		on:change={handleFileInput}
 		style="display: none;"
@@ -113,8 +113,8 @@ function triggerFileInput() {
 				d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
 			/>
 		</svg>
-		<p class="upload-text">Drop GDSII file here or click to browse</p>
-		<p class="upload-hint">Supports .gds and .gdsii files</p>
+		<p class="upload-text">Drop GDSII or DXF file here or click to browse</p>
+		<p class="upload-hint">Supports .gds, .gdsii, and .dxf files</p>
 	</div>
 </div>
 

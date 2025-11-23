@@ -230,7 +230,9 @@ onMount(async () => {
 		border: 1px solid #ff4444;
 		border-radius: 8px;
 		padding: 1rem 1.5rem;
-		max-width: 400px;
+		max-width: 500px;
+		max-height: 80vh;
+		overflow-y: auto;
 	}
 
 	.error-title {
@@ -244,6 +246,8 @@ onMount(async () => {
 		margin: 0 0 1rem 0;
 		font-size: 0.875rem;
 		color: #ffaaaa;
+		white-space: pre-wrap;
+		line-height: 1.5;
 	}
 
 	.error-button {
