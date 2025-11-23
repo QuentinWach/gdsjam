@@ -64,3 +64,12 @@ export const SPATIAL_TILE_SIZE = Number(import.meta.env.VITE_SPATIAL_TILE_SIZE |
  * Polygon Rendering Configuration
  */
 export const POLYGON_FILL_MODE = true; // true = filled polygons, false = outline only
+
+/**
+ * Zoom Limits Configuration
+ * Limits are defined by scale bar width in micrometers
+ * - Max zoom (zoomed in): scale bar shows 1 nm
+ * - Min zoom (zoomed out): scale bar shows 1 m
+ */
+export const MIN_ZOOM_SCALE_BAR_MICROMETERS = 1_000_000; // 1 m = 1,000,000 µm (max zoom out)
+export const MAX_ZOOM_SCALE_BAR_MICROMETERS = 0.001; // 1 nm = 0.001 µm (max zoom in)

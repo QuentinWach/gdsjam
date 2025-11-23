@@ -187,10 +187,14 @@ export class PixiRenderer {
 				y: (mouseY - this.mainContainer.y) / this.mainContainer.scale.y,
 			};
 
-			// Preserve Y-axis flip while zooming
+			// Calculate new scale and clamp to limits
 			const currentYSign = Math.sign(this.mainContainer.scale.y);
-			this.mainContainer.scale.x *= zoomFactor;
-			this.mainContainer.scale.y = Math.abs(this.mainContainer.scale.y) * zoomFactor * currentYSign;
+			const newScaleX = this.mainContainer.scale.x * zoomFactor;
+			const clampedScaleX = this.clampZoomScale(newScaleX);
+
+			// Apply clamped scale
+			this.mainContainer.scale.x = clampedScaleX;
+			this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
 
 			this.mainContainer.x = mouseX - worldPos.x * this.mainContainer.scale.x;
 			this.mainContainer.y = mouseY - worldPos.y * this.mainContainer.scale.y;
@@ -255,11 +259,14 @@ export class PixiRenderer {
 					y: (centerY - this.mainContainer.y) / this.mainContainer.scale.y,
 				};
 
-				// Preserve Y-axis flip while zooming
+				// Calculate new scale and clamp to limits
 				const currentYSign = Math.sign(this.mainContainer.scale.y);
-				this.mainContainer.scale.x *= zoomFactor;
-				this.mainContainer.scale.y =
-					Math.abs(this.mainContainer.scale.y) * zoomFactor * currentYSign;
+				const newScaleX = this.mainContainer.scale.x * zoomFactor;
+				const clampedScaleX = this.clampZoomScale(newScaleX);
+
+				// Apply clamped scale
+				this.mainContainer.scale.x = clampedScaleX;
+				this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
 
 				this.mainContainer.x = centerX - worldPos.x * this.mainContainer.scale.x;
 				this.mainContainer.y = centerY - worldPos.y * this.mainContainer.scale.y;
@@ -421,11 +428,14 @@ export class PixiRenderer {
 						y: (centerY - this.mainContainer.y) / this.mainContainer.scale.y,
 					};
 
-					// Apply zoom while preserving Y-axis flip
+					// Calculate new scale and clamp to limits
 					const currentYSign = Math.sign(this.mainContainer.scale.y);
-					this.mainContainer.scale.x *= zoomFactor;
-					this.mainContainer.scale.y =
-						Math.abs(this.mainContainer.scale.y) * zoomFactor * currentYSign;
+					const newScaleX = this.mainContainer.scale.x * zoomFactor;
+					const clampedScaleX = this.clampZoomScale(newScaleX);
+
+					// Apply clamped scale
+					this.mainContainer.scale.x = clampedScaleX;
+					this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
 
 					// Adjust position to zoom toward center point
 					this.mainContainer.x = centerX - worldPos.x * this.mainContainer.scale.x;
@@ -681,6 +691,79 @@ export class PixiRenderer {
 	private updateZoomThresholds(currentZoom: number): void {
 		this.zoomThresholdLow = currentZoom * LOD_ZOOM_OUT_THRESHOLD;
 		this.zoomThresholdHigh = currentZoom * LOD_ZOOM_IN_THRESHOLD;
+	}
+
+	/**
+	 * Calculate minimum allowed zoom scale based on scale bar constraint
+	 * Min zoom (zoomed out): scale bar shows 1 m
+	 */
+	private getMinZoomScale(): number {
+		const bounds = this.getViewportBounds();
+		const viewWidthDB = bounds.maxX - bounds.minX;
+
+		// If no valid bounds, return a very small scale
+		if (viewWidthDB <= 0) {
+			return 0.00001;
+		}
+
+		// Convert database units to micrometers
+		const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
+		const viewWidthUserUnits = viewWidthDB * dbToUserUnits;
+
+		// Calculate the scale bar width that would be shown at current viewport width
+		// Scale bar width is calculated as: 10^floor(log10(viewWidth / 4))
+		// We want the scale bar to be at most MIN_ZOOM_SCALE_BAR_MICROMETERS (1 m = 1,000,000 µm)
+		// So: 10^floor(log10(viewWidth / 4)) <= 1,000,000
+		// This means: viewWidth / 4 <= 1,000,000 * 10
+		// So: viewWidth <= 1,000,000 * 40 = 40,000,000 µm
+		// But we want 1 m max, so: viewWidth <= 1,000,000 * 4 = 4,000,000 µm
+		const maxViewWidthMicrometers = 1_000_000 * 4; // 4 m viewport width gives 1 m scale bar
+
+		// Calculate minimum scale: current_scale * (current_view_width / max_view_width)
+		const currentScale = Math.abs(this.mainContainer.scale.x);
+		const minScale = currentScale * (viewWidthUserUnits / maxViewWidthMicrometers);
+
+		return minScale;
+	}
+
+	/**
+	 * Calculate maximum allowed zoom scale based on scale bar constraint
+	 * Max zoom (zoomed in): scale bar shows 1 nm
+	 */
+	private getMaxZoomScale(): number {
+		const bounds = this.getViewportBounds();
+		const viewWidthDB = bounds.maxX - bounds.minX;
+
+		// If no valid bounds, return a very large scale
+		if (viewWidthDB <= 0) {
+			return 100000;
+		}
+
+		// Convert database units to micrometers
+		const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
+		const viewWidthUserUnits = viewWidthDB * dbToUserUnits;
+
+		// We want the scale bar to be at least 1 nm (0.001 µm)
+		// So: 10^floor(log10(viewWidth / 4)) >= 0.001
+		// This means: viewWidth / 4 >= 0.001
+		// So: viewWidth >= 0.001 * 4 = 0.004 µm
+		const minViewWidthMicrometers = 0.001 * 4; // 0.004 µm viewport width gives 1 nm scale bar
+
+		// Calculate maximum scale: current_scale * (current_view_width / min_view_width)
+		const currentScale = Math.abs(this.mainContainer.scale.x);
+		const maxScale = currentScale * (viewWidthUserUnits / minViewWidthMicrometers);
+
+		return maxScale;
+	}
+
+	/**
+	 * Clamp zoom scale to respect min/max limits
+	 */
+	private clampZoomScale(newScale: number): number {
+		const minScale = this.getMinZoomScale();
+		const maxScale = this.getMaxZoomScale();
+
+		return Math.max(minScale, Math.min(maxScale, newScale));
 	}
 
 	/**
