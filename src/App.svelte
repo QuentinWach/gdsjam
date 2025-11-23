@@ -1,10 +1,44 @@
 <script lang="ts">
+import { onMount } from "svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import FileUpload from "./components/ui/FileUpload.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import ViewerCanvas from "./components/viewer/ViewerCanvas.svelte";
+import { DEBUG } from "./lib/config";
+import { loadGDSIIFromBuffer } from "./lib/utils/gdsLoader";
+import { fetchGDSIIFromURL } from "./lib/utils/urlLoader";
 // biome-ignore lint/correctness/noUnusedImports: Used in template via $gdsStore
 import { gdsStore } from "./stores/gdsStore";
+
+/**
+ * Check for URL parameter and load file from URL if present
+ */
+onMount(async () => {
+	// Parse URL parameters
+	const urlParams = new URLSearchParams(window.location.search);
+	const fileUrl = urlParams.get("url");
+
+	if (fileUrl) {
+		if (DEBUG) {
+			console.log("[App] Loading file from URL parameter:", fileUrl);
+		}
+
+		try {
+			// Fetch the file from URL
+			const { arrayBuffer, fileName } = await fetchGDSIIFromURL(fileUrl, (progress, message) => {
+				gdsStore.setLoading(true, message, progress);
+			});
+
+			// Load the file
+			await loadGDSIIFromBuffer(arrayBuffer, fileName);
+		} catch (error) {
+			console.error("[App] Failed to load file from URL:", error);
+			gdsStore.setError(
+				`Failed to load file from URL: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+});
 </script>
 
 <main class="app-main">

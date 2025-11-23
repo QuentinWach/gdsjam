@@ -1,6 +1,6 @@
 <script lang="ts">
 import { DEBUG } from "../../lib/config";
-import { parseGDSII } from "../../lib/gds/GDSParser";
+import { loadGDSIIFromBuffer } from "../../lib/utils/gdsLoader";
 import { gdsStore } from "../../stores/gdsStore";
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Svelte class binding
@@ -16,11 +16,6 @@ async function handleFile(file: File) {
 		console.log(`[FileUpload] Loading ${file.name} (${fileSizeMB} MB)`);
 	}
 
-	if (!file.name.toLowerCase().endsWith(".gds") && !file.name.toLowerCase().endsWith(".gdsii")) {
-		gdsStore.setError("Please select a valid GDSII file (.gds or .gdsii)");
-		return;
-	}
-
 	try {
 		gdsStore.setLoading(true, "Reading file...", 0);
 
@@ -29,23 +24,11 @@ async function handleFile(file: File) {
 			console.log(`[FileUpload] File read complete: ${arrayBuffer.byteLength} bytes`);
 		}
 
-		gdsStore.updateProgress(5, "Parsing GDSII file...");
-		const { document, statistics } = await parseGDSII(
-			arrayBuffer,
-			file.name,
-			(progress, message) => {
-				gdsStore.updateProgress(progress, message);
-			},
-		);
-
-		gdsStore.setDocument(document, file.name, statistics);
-		if (DEBUG) {
-			console.log("[FileUpload] File loaded successfully");
-		}
+		await loadGDSIIFromBuffer(arrayBuffer, file.name);
 	} catch (error) {
-		console.error("[FileUpload] Failed to load GDSII file:", error);
+		console.error("[FileUpload] Failed to read file:", error);
 		gdsStore.setError(
-			`Failed to load file: ${error instanceof Error ? error.message : String(error)}`,
+			`Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
 }
@@ -181,4 +164,3 @@ function triggerFileInput() {
 		color: #666;
 	}
 </style>
-
