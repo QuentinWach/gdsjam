@@ -20,6 +20,7 @@ import {
 	SPATIAL_TILE_SIZE,
 } from "../config";
 import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
+import { InputController } from "./controls/InputController";
 import { CoordinatesDisplay } from "./overlays/CoordinatesDisplay";
 import { FPSCounter } from "./overlays/FPSCounter";
 import { GridOverlay } from "./overlays/GridOverlay";
@@ -67,6 +68,9 @@ export class PixiRenderer {
 	private coordinatesDisplay!: CoordinatesDisplay;
 	private gridOverlay!: GridOverlay;
 	private scaleBarOverlay!: ScaleBarOverlay;
+
+	// Input Controllers
+	private inputController!: InputController;
 
 	constructor() {
 		this.app = new Application();
@@ -142,7 +146,20 @@ export class PixiRenderer {
 		this.mainContainer.eventMode = "static";
 
 		this.isInitialized = true;
-		this.setupControls();
+
+		// Initialize input controllers
+		this.inputController = new InputController(this.app.canvas, {
+			onZoom: this.handleZoom.bind(this),
+			onPan: this.handlePan.bind(this),
+			onFitToView: this.fitToView.bind(this),
+			onToggleGrid: this.toggleGrid.bind(this),
+			onCoordinatesUpdate: this.handleCoordinatesUpdate.bind(this),
+			getScreenCenter: () => ({
+				x: this.app.screen.width / 2,
+				y: this.app.screen.height / 2,
+			}),
+		});
+
 		this.performGridUpdate();
 		this.performScaleBarUpdate();
 
@@ -166,336 +183,63 @@ export class PixiRenderer {
 	}
 
 	/**
-	 * Setup zoom and pan controls (mouse, keyboard, and touch)
+	 * Handle zoom from input controllers
 	 */
-	private setupControls(): void {
-		// Mouse wheel zoom
-		this.app.canvas.addEventListener("wheel", (e) => {
-			e.preventDefault();
-			const delta = e.deltaY;
-			const zoomFactor = delta > 0 ? 0.9 : 1.1;
+	private handleZoom(
+		zoomFactor: number,
+		centerX: number,
+		centerY: number,
+		_worldPosX: number,
+		_worldPosY: number,
+	): void {
+		// Calculate world position at zoom center
+		const worldPos = {
+			x: (centerX - this.mainContainer.x) / this.mainContainer.scale.x,
+			y: (centerY - this.mainContainer.y) / this.mainContainer.scale.y,
+		};
 
-			// Zoom to cursor position
-			const mouseX = e.offsetX;
-			const mouseY = e.offsetY;
+		// Calculate new scale and clamp to limits
+		const currentYSign = Math.sign(this.mainContainer.scale.y);
+		const newScaleX = this.mainContainer.scale.x * zoomFactor;
+		const clampedScaleX = this.clampZoomScale(newScaleX);
 
-			const worldPos = {
-				x: (mouseX - this.mainContainer.x) / this.mainContainer.scale.x,
-				y: (mouseY - this.mainContainer.y) / this.mainContainer.scale.y,
-			};
+		// Apply clamped scale
+		this.mainContainer.scale.x = clampedScaleX;
+		this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
 
-			// Calculate new scale and clamp to limits
-			const currentYSign = Math.sign(this.mainContainer.scale.y);
-			const newScaleX = this.mainContainer.scale.x * zoomFactor;
-			const clampedScaleX = this.clampZoomScale(newScaleX);
+		// Adjust position to zoom toward center point
+		this.mainContainer.x = centerX - worldPos.x * this.mainContainer.scale.x;
+		this.mainContainer.y = centerY - worldPos.y * this.mainContainer.scale.y;
 
-			// Apply clamped scale
-			this.mainContainer.scale.x = clampedScaleX;
-			this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
+		this.updateViewport();
+		this.updateGrid();
+		this.updateScaleBar();
+	}
 
-			this.mainContainer.x = mouseX - worldPos.x * this.mainContainer.scale.x;
-			this.mainContainer.y = mouseY - worldPos.y * this.mainContainer.scale.y;
+	/**
+	 * Handle pan from input controllers
+	 */
+	private handlePan(dx: number, dy: number): void {
+		this.mainContainer.x += dx;
+		this.mainContainer.y += dy;
 
-			this.updateViewport();
-			this.updateGrid();
-			this.updateScaleBar();
-		});
+		this.updateViewport();
+		this.updateGrid();
+		this.updateScaleBar();
+	}
 
-		// Pan with middle mouse or Space + drag
-		let isPanning = false;
-		let lastMouseX = 0;
-		let lastMouseY = 0;
-		let isSpacePressed = false;
-
-		// Touch controls state
-		const touches: Map<number, { x: number; y: number }> = new Map();
-		let lastTouchDistance = 0;
-
-		window.addEventListener("keydown", (e) => {
-			if (e.code === "Space") {
-				isSpacePressed = true;
-				e.preventDefault();
-			}
-
-			// Arrow keys for panning
-			const panStep = 50; // pixels
-			if (e.code === "ArrowUp") {
-				this.mainContainer.y += panStep;
-				this.updateViewport();
-				this.updateGrid();
-				this.updateScaleBar();
-				e.preventDefault();
-			} else if (e.code === "ArrowDown") {
-				this.mainContainer.y -= panStep;
-				this.updateViewport();
-				this.updateGrid();
-				this.updateScaleBar();
-				e.preventDefault();
-			} else if (e.code === "ArrowLeft") {
-				this.mainContainer.x += panStep;
-				this.updateViewport();
-				this.updateGrid();
-				this.updateScaleBar();
-				e.preventDefault();
-			} else if (e.code === "ArrowRight") {
-				this.mainContainer.x -= panStep;
-				this.updateViewport();
-				this.updateGrid();
-				this.updateScaleBar();
-				e.preventDefault();
-			}
-
-			// Enter for zoom in, Shift+Enter for zoom out
-			if (e.code === "Enter") {
-				const zoomFactor = e.shiftKey ? 0.9 : 1.1;
-				const centerX = this.app.screen.width / 2;
-				const centerY = this.app.screen.height / 2;
-
-				const worldPos = {
-					x: (centerX - this.mainContainer.x) / this.mainContainer.scale.x,
-					y: (centerY - this.mainContainer.y) / this.mainContainer.scale.y,
-				};
-
-				// Calculate new scale and clamp to limits
-				const currentYSign = Math.sign(this.mainContainer.scale.y);
-				const newScaleX = this.mainContainer.scale.x * zoomFactor;
-				const clampedScaleX = this.clampZoomScale(newScaleX);
-
-				// Apply clamped scale
-				this.mainContainer.scale.x = clampedScaleX;
-				this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
-
-				this.mainContainer.x = centerX - worldPos.x * this.mainContainer.scale.x;
-				this.mainContainer.y = centerY - worldPos.y * this.mainContainer.scale.y;
-
-				this.updateViewport();
-				this.updateGrid();
-				this.updateScaleBar();
-				e.preventDefault();
-			}
-
-			// F key for fit to view
-			if (e.code === "KeyF") {
-				this.fitToView();
-				e.preventDefault();
-			}
-
-			// G key for grid toggle
-			if (e.code === "KeyG") {
-				this.toggleGrid();
-				e.preventDefault();
-			}
-		});
-
-		window.addEventListener("keyup", (e) => {
-			if (e.code === "Space") {
-				isSpacePressed = false;
-			}
-		});
-
-		this.app.canvas.addEventListener("mousedown", (e) => {
-			if (e.button === 1 || (e.button === 0 && isSpacePressed)) {
-				isPanning = true;
-				lastMouseX = e.clientX;
-				lastMouseY = e.clientY;
-				e.preventDefault();
-			}
-		});
-
-		window.addEventListener("mousemove", (e) => {
-			if (isPanning) {
-				const dx = e.clientX - lastMouseX;
-				const dy = e.clientY - lastMouseY;
-
-				this.mainContainer.x += dx;
-				this.mainContainer.y += dy;
-
-				lastMouseX = e.clientX;
-				lastMouseY = e.clientY;
-
-				this.updateViewport();
-				this.updateGrid();
-				this.updateScaleBar();
-			}
-		});
-
-		window.addEventListener("mouseup", () => {
-			isPanning = false;
-		});
-
-		// Track mouse position for coordinates display
-		this.app.canvas.addEventListener("mousemove", (e) => {
-			const mouseX = e.offsetX;
-			const mouseY = e.offsetY;
-
-			this.coordinatesDisplay.update(
-				mouseX,
-				mouseY,
-				this.mainContainer.x,
-				this.mainContainer.y,
-				this.mainContainer.scale.x,
-				this.documentUnits,
-			);
-		});
-
-		// Touch controls for mobile devices
-		this.app.canvas.addEventListener("touchstart", (e) => {
-			e.preventDefault();
-
-			// Update touch tracking
-			for (let i = 0; i < e.touches.length; i++) {
-				const touch = e.touches.item(i);
-				if (touch) {
-					touches.set(touch.identifier, {
-						x: touch.clientX,
-						y: touch.clientY,
-					});
-				}
-			}
-
-			// Initialize pinch distance for two-finger zoom
-			if (e.touches.length === 2) {
-				const touch1 = e.touches.item(0);
-				const touch2 = e.touches.item(1);
-				if (touch1 && touch2) {
-					const dx = touch2.clientX - touch1.clientX;
-					const dy = touch2.clientY - touch1.clientY;
-					lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
-				}
-			}
-		});
-
-		this.app.canvas.addEventListener("touchmove", (e) => {
-			e.preventDefault();
-
-			if (e.touches.length === 1) {
-				// One-finger pan
-				const touch = e.touches.item(0);
-				if (!touch) return;
-
-				const lastTouch = touches.get(touch.identifier);
-
-				if (lastTouch) {
-					const dx = touch.clientX - lastTouch.x;
-					const dy = touch.clientY - lastTouch.y;
-
-					this.mainContainer.x += dx;
-					this.mainContainer.y += dy;
-
-					this.updateViewport();
-					this.updateGrid();
-					this.updateScaleBar();
-				}
-
-				// Update touch position
-				touches.set(touch.identifier, {
-					x: touch.clientX,
-					y: touch.clientY,
-				});
-
-				// Update coordinates display for touch
-				const rect = this.app.canvas.getBoundingClientRect();
-				const canvasX = touch.clientX - rect.left;
-				const canvasY = touch.clientY - rect.top;
-
-				this.coordinatesDisplay.update(
-					canvasX,
-					canvasY,
-					this.mainContainer.x,
-					this.mainContainer.y,
-					this.mainContainer.scale.x,
-					this.documentUnits,
-				);
-			} else if (e.touches.length === 2) {
-				// Two-finger pinch zoom
-				const touch1 = e.touches.item(0);
-				const touch2 = e.touches.item(1);
-				if (!touch1 || !touch2) return;
-
-				// Calculate current distance between touches
-				const dx = touch2.clientX - touch1.clientX;
-				const dy = touch2.clientY - touch1.clientY;
-				const currentDistance = Math.sqrt(dx * dx + dy * dy);
-
-				if (lastTouchDistance > 0) {
-					// Calculate zoom factor based on pinch distance change
-					const zoomFactor = currentDistance / lastTouchDistance;
-
-					// Calculate center point between two touches
-					const rect = this.app.canvas.getBoundingClientRect();
-					const centerX = (touch1.clientX + touch2.clientX) / 2 - rect.left;
-					const centerY = (touch1.clientY + touch2.clientY) / 2 - rect.top;
-
-					// Calculate world position at zoom center
-					const worldPos = {
-						x: (centerX - this.mainContainer.x) / this.mainContainer.scale.x,
-						y: (centerY - this.mainContainer.y) / this.mainContainer.scale.y,
-					};
-
-					// Calculate new scale and clamp to limits
-					const currentYSign = Math.sign(this.mainContainer.scale.y);
-					const newScaleX = this.mainContainer.scale.x * zoomFactor;
-					const clampedScaleX = this.clampZoomScale(newScaleX);
-
-					// Apply clamped scale
-					this.mainContainer.scale.x = clampedScaleX;
-					this.mainContainer.scale.y = Math.abs(clampedScaleX) * currentYSign;
-
-					// Adjust position to zoom toward center point
-					this.mainContainer.x = centerX - worldPos.x * this.mainContainer.scale.x;
-					this.mainContainer.y = centerY - worldPos.y * this.mainContainer.scale.y;
-
-					this.updateViewport();
-					this.updateGrid();
-					this.updateScaleBar();
-				}
-
-				// Update distance for next frame
-				lastTouchDistance = currentDistance;
-
-				// Update touch positions
-				touches.set(touch1.identifier, {
-					x: touch1.clientX,
-					y: touch1.clientY,
-				});
-				touches.set(touch2.identifier, {
-					x: touch2.clientX,
-					y: touch2.clientY,
-				});
-			}
-		});
-
-		this.app.canvas.addEventListener("touchend", (e) => {
-			e.preventDefault();
-
-			// Remove ended touches from tracking
-			const activeTouchIds = new Set<number>();
-			for (let i = 0; i < e.touches.length; i++) {
-				const touch = e.touches.item(i);
-				if (touch) {
-					activeTouchIds.add(touch.identifier);
-				}
-			}
-
-			// Clean up touches that ended
-			for (const touchId of touches.keys()) {
-				if (!activeTouchIds.has(touchId)) {
-					touches.delete(touchId);
-				}
-			}
-
-			// Reset pinch distance when not exactly 2 touches
-			if (e.touches.length !== 2) {
-				lastTouchDistance = 0;
-			}
-		});
-
-		this.app.canvas.addEventListener("touchcancel", (e) => {
-			e.preventDefault();
-			// Clear all touch tracking on cancel
-			touches.clear();
-			lastTouchDistance = 0;
-		});
+	/**
+	 * Handle coordinates update from input controllers
+	 */
+	private handleCoordinatesUpdate(mouseX: number, mouseY: number): void {
+		this.coordinatesDisplay.update(
+			mouseX,
+			mouseY,
+			this.mainContainer.x,
+			this.mainContainer.y,
+			this.mainContainer.scale.x,
+			this.documentUnits,
+		);
 	}
 
 	/**
@@ -1591,6 +1335,11 @@ export class PixiRenderer {
 	 * Destroy the renderer
 	 */
 	destroy(): void {
+		// Clean up input controllers
+		if (this.inputController) {
+			this.inputController.destroy();
+		}
+
 		// Remove event listener
 		window.removeEventListener(
 			"layer-visibility-changed",

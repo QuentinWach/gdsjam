@@ -1,12 +1,64 @@
 # DevLog 001-02: PixiRenderer Refactoring Plan
 
 **Date**: 2025-11-23
-**Status**: Phase 1 Complete
+**Status**: Phase 2 Complete
 **Goal**: Refactor the 1,688-line PixiRenderer class into modular, maintainable components
 
 ---
 
 ## Implementation Progress
+
+### Phase 2: Extract Input Controllers - COMPLETE
+
+**Date Completed**: 2025-11-23
+**Actual Effort**: ~1 hour
+**Status**: All tests passed, all input methods working correctly
+
+**Files Created**:
+- `src/lib/renderer/controls/InputController.ts` (61 lines)
+- `src/lib/renderer/controls/MouseController.ts` (128 lines)
+- `src/lib/renderer/controls/KeyboardController.ts` (78 lines)
+- `src/lib/renderer/controls/TouchController.ts` (181 lines)
+
+**PixiRenderer Changes**:
+- **Before**: 1,609 lines
+- **After**: 1,359 lines
+- **Reduction**: 250 lines (328 removed from setupControls, 78 added for handlers and integration)
+
+**What Was Extracted**:
+1. **MouseController** - Mouse wheel zoom, middle button pan, Space+drag pan, coordinate tracking
+2. **KeyboardController** - Arrow key panning, Enter/Shift+Enter zoom, F key fit-to-view, G key grid toggle
+3. **TouchController** - One-finger pan, two-finger pinch zoom, touch coordinate tracking
+4. **InputController** - Coordinates all three controllers with unified callback interface
+
+**Architecture Changes**:
+- Removed entire 328-line setupControls() method
+- Added three handler methods in PixiRenderer: handleZoom(), handlePan(), handleCoordinatesUpdate()
+- Implemented callback-based architecture where controllers call PixiRenderer methods
+- All event listeners properly cleaned up in destroy() method
+- Controllers are independent and focused on specific input types
+
+**Testing Results**:
+- Mouse wheel zoom works correctly (zoom to cursor position)
+- Mouse pan works (middle button drag)
+- Space+drag pan works correctly
+- Arrow keys pan correctly
+- Enter/Shift+Enter zoom works
+- F key fit-to-view works
+- G key grid toggle works
+- Touch controls work (pan and pinch zoom)
+- Coordinates display updates correctly on mouse move
+- Grid and scale bar update correctly after all input actions
+- No console errors
+- TypeScript compilation passes
+
+**Lessons Learned**:
+- Callback-based architecture provides clean separation between input handling and viewport state management
+- Controllers handle their own event listener cleanup, preventing memory leaks
+- World position calculation must remain in PixiRenderer since controllers don't have access to mainContainer state
+- Total line count reduction of 250 lines while improving modularity and testability
+
+---
 
 ### Phase 1: Extract UI Overlays - COMPLETE
 
