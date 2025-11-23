@@ -234,12 +234,5 @@ function handleToggleLayers() {
 		height: 24px;
 		stroke-width: 2.5;
 	}
-
-	/* Hide on desktop (show only on mobile/tablet) */
-	@media (min-width: 1024px) {
-		.mobile-controls {
-			display: none;
-		}
-	}
 </style>
 
