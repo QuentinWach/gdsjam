@@ -1,12 +1,23 @@
-# GDSJam
+<div align="center">
+  <img src="public/icon.svg" alt="GDSJam Icon" width="128" height="128">
 
-Web-based GDSII viewer for semiconductor layout visualization.
+  # GDSJam
+
+  Web-based GDSII viewer for semiconductor layout visualization.
+</div>
 
 ## Overview
 
 GDSJam is a client-side web application for viewing GDSII files directly in the browser. Built for academics, chip design newcomers, and the photonics community to promote open-source EDA culture.
 
 **Privacy**: All processing happens in your browser - your GDS files are never uploaded to any server.
+
+## Screenshots
+
+<div align="center">
+  <img src="public/example.png" alt="GDSJam Desktop View" height="400">
+  <img src="public/example_mobile.png" alt="GDSJam Mobile View" height="400">
+</div>
 
 ## Features
 

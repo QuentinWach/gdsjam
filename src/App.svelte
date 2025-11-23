@@ -9,7 +9,10 @@ import { gdsStore } from "./stores/gdsStore";
 
 <main class="app-main">
 	<div class="header">
-		<h1 class="title">GDSJam</h1>
+		<div class="title-container">
+			<img src="/icon.svg" alt="GDSJam" class="title-icon" />
+			<h1 class="title">GDSJam</h1>
+		</div>
 		<p class="subtitle">Collaborative (not yet) GDSII Viewer</p>
 		{#if $gdsStore.fileName}
 			<p class="file-name">Loaded: {$gdsStore.fileName}</p>
@@ -74,6 +77,17 @@ import { gdsStore } from "./stores/gdsStore";
 		padding: 1rem 1.5rem;
 		background-color: #0f0f0f;
 		border-bottom: 1px solid #333;
+	}
+
+	.title-container {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.title-icon {
+		width: 2rem;
+		height: 2rem;
 	}
 
 	.title {
