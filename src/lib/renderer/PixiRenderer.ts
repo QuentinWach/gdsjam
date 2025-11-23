@@ -282,6 +282,12 @@ export class PixiRenderer {
 				this.fitToView();
 				e.preventDefault();
 			}
+
+			// G key for grid toggle
+			if (e.code === "KeyG") {
+				this.toggleGrid();
+				e.preventDefault();
+			}
 		});
 
 		window.addEventListener("keyup", (e) => {

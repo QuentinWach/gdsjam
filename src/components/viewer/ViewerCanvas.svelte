@@ -8,6 +8,8 @@ import type { GDSDocument } from "../../types/gds";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import LayerPanel from "../ui/LayerPanel.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
+import MobileControls from "../ui/MobileControls.svelte";
+// biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import PerformancePanel from "../ui/PerformancePanel.svelte";
 
 let canvas: HTMLCanvasElement;
@@ -108,6 +110,13 @@ $effect(() => {
 	<canvas bind:this={canvas} class="viewer-canvas"></canvas>
 	<PerformancePanel {renderer} statistics={$gdsStore.statistics} visible={panelsVisible} />
 	<LayerPanel statistics={$gdsStore.statistics} visible={layerPanelVisible} />
+	<MobileControls
+		{renderer}
+		onTogglePerformance={() => { panelsVisible = !panelsVisible; }}
+		onToggleLayers={() => { layerPanelVisible = !layerPanelVisible; }}
+		performanceVisible={panelsVisible}
+		layersVisible={layerPanelVisible}
+	/>
 </div>
 
 <style>
