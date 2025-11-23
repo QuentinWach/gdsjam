@@ -49,16 +49,29 @@ function generateLayerColor(layerName: string): string {
 
 /**
  * Convert DXF entity to GDSII polygon
+ * @param entity - DXF entity to convert
+ * @param layerNumber - Layer number for the polygon
+ * @param scaleFactor - Scale factor to convert DXF units to database units (user/database)
  */
-function convertEntityToPolygon(entity: IEntity, layerNumber: number): Polygon | null {
+function convertEntityToPolygon(
+	entity: IEntity,
+	layerNumber: number,
+	scaleFactor: number,
+): Polygon | null {
 	const points: Point[] = [];
 
 	switch (entity.type) {
 		case "LINE": {
 			const line = entity as any;
 			if (line.vertices && line.vertices.length >= 2) {
-				points.push({ x: line.vertices[0].x, y: line.vertices[0].y });
-				points.push({ x: line.vertices[1].x, y: line.vertices[1].y });
+				points.push({
+					x: line.vertices[0].x * scaleFactor,
+					y: line.vertices[0].y * scaleFactor,
+				});
+				points.push({
+					x: line.vertices[1].x * scaleFactor,
+					y: line.vertices[1].y * scaleFactor,
+				});
 				// Close the line by adding a small width (convert to rectangle)
 				// This is a simplification - real conversion would need more sophisticated handling
 			}
@@ -70,7 +83,7 @@ function convertEntityToPolygon(entity: IEntity, layerNumber: number): Polygon |
 			const poly = entity as any;
 			if (poly.vertices && poly.vertices.length > 0) {
 				for (const vertex of poly.vertices) {
-					points.push({ x: vertex.x, y: vertex.y });
+					points.push({ x: vertex.x * scaleFactor, y: vertex.y * scaleFactor });
 				}
 			}
 			break;
@@ -80,9 +93,9 @@ function convertEntityToPolygon(entity: IEntity, layerNumber: number): Polygon |
 			const circle = entity as any;
 			// Approximate circle with polygon (32 sides)
 			const segments = 32;
-			const centerX = circle.center?.x || 0;
-			const centerY = circle.center?.y || 0;
-			const radius = circle.radius || 0;
+			const centerX = (circle.center?.x || 0) * scaleFactor;
+			const centerY = (circle.center?.y || 0) * scaleFactor;
+			const radius = (circle.radius || 0) * scaleFactor;
 			for (let i = 0; i < segments; i++) {
 				const angle = (i / segments) * 2 * Math.PI;
 				points.push({
@@ -97,9 +110,9 @@ function convertEntityToPolygon(entity: IEntity, layerNumber: number): Polygon |
 			const arc = entity as any;
 			// Approximate arc with polygon segments
 			const segments = 16;
-			const centerX = arc.center?.x || 0;
-			const centerY = arc.center?.y || 0;
-			const radius = arc.radius || 0;
+			const centerX = (arc.center?.x || 0) * scaleFactor;
+			const centerY = (arc.center?.y || 0) * scaleFactor;
+			const radius = (arc.radius || 0) * scaleFactor;
 			const startAngle = ((arc.startAngle || 0) * Math.PI) / 180;
 			const endAngle = ((arc.endAngle || 0) * Math.PI) / 180;
 			for (let i = 0; i <= segments; i++) {
@@ -117,7 +130,7 @@ function convertEntityToPolygon(entity: IEntity, layerNumber: number): Polygon |
 			const solid = entity as any;
 			if (solid.corners && solid.corners.length > 0) {
 				for (const corner of solid.corners) {
-					points.push({ x: corner.x, y: corner.y });
+					points.push({ x: corner.x * scaleFactor, y: corner.y * scaleFactor });
 				}
 			}
 			break;
@@ -163,12 +176,18 @@ function convertEntityToPolygon(entity: IEntity, layerNumber: number): Polygon |
 
 /**
  * Convert DXF file to GDSII document
+ * @param fileData - DXF file data
+ * @param fileName - Name of the file
+ * @param onProgress - Progress callback
+ * @param unitOverride - Optional unit override in meters (e.g., 0.001 for mm). If not provided, uses $INSUNITS from DXF header or defaults to mm
+ * @returns GDS document with metadata about unit detection
  */
 export async function convertDxfToGds(
 	fileData: Uint8Array,
 	fileName: string,
 	onProgress?: (progress: number, message: string) => void,
-): Promise<GDSDocument> {
+	unitOverride?: number,
+): Promise<GDSDocument & { unitWasAssumed: boolean; detectedUnit: string }> {
 	onProgress?.(10, "Parsing DXF file...");
 
 	// Convert Uint8Array to string
@@ -194,11 +213,71 @@ export async function convertDxfToGds(
 		);
 	}
 
+	// Check DXF units from header
+	// $INSUNITS: 1=inches, 2=feet, 4=mm, 5=cm, 6=m, 14=micrometers
+	const insunits = dxf.header?.$INSUNITS as number | undefined;
+	let dxfUnitInMeters: number;
+	let unitName: string;
+	let unitWasAssumed = false;
+
+	// Use override if provided
+	if (unitOverride !== undefined) {
+		dxfUnitInMeters = unitOverride;
+		unitName = `${unitOverride} meters (user-specified)`;
+		unitWasAssumed = false;
+	} else if (insunits !== undefined) {
+		// Use units from DXF header
+		switch (insunits) {
+			case 1:
+				dxfUnitInMeters = 0.0254;
+				unitName = "inches";
+				break;
+			case 2:
+				dxfUnitInMeters = 0.3048;
+				unitName = "feet";
+				break;
+			case 4:
+				dxfUnitInMeters = 0.001;
+				unitName = "millimeters";
+				break;
+			case 5:
+				dxfUnitInMeters = 0.01;
+				unitName = "centimeters";
+				break;
+			case 6:
+				dxfUnitInMeters = 1.0;
+				unitName = "meters";
+				break;
+			case 14:
+				dxfUnitInMeters = 1e-6;
+				unitName = "micrometers";
+				break;
+			default:
+				console.warn(
+					`[DxfToGdsConverter] Unknown INSUNITS value: ${insunits}, assuming millimeters`,
+				);
+				dxfUnitInMeters = 0.001;
+				unitName = "millimeters (assumed)";
+				unitWasAssumed = true;
+		}
+	} else {
+		// No units specified - assume micrometers (common for IC layouts)
+		dxfUnitInMeters = 1e-6;
+		unitName = "micrometers (assumed)";
+		unitWasAssumed = true;
+		console.warn(
+			"[DxfToGdsConverter] No $INSUNITS in DXF header, assuming micrometers (common for IC layouts). " +
+				"If incorrect, reload the file and specify units manually.",
+		);
+	}
+
 	onProgress?.(30, "Converting entities to GDSII...");
 
 	if (DEBUG) {
 		console.log("[DxfToGdsConverter] DXF parsed successfully:", {
 			entities: dxf.entities?.length || 0,
+			units: unitName,
+			insunits,
 			layers: Object.keys(dxf.tables?.layer?.layers || {}).length,
 			blocks: Object.keys(dxf.blocks || {}).length,
 		});
@@ -247,6 +326,16 @@ export async function convertDxfToGds(
 		layerNameToNumber.set(layerName, currentLayerNum++);
 	}
 
+	// Calculate scale factor to convert DXF units to database units
+	// DXF coordinates are in user units (e.g., mm), but GDS coordinates must be in database units (nm)
+	// Scale factor = user / database (e.g., 0.001 / 1e-9 = 1,000,000 for mm to nm)
+	const database = 1e-9; // 1 database unit = 1 nanometer (standard for GDSII)
+	const scaleFactor = dxfUnitInMeters / database;
+
+	if (DEBUG) {
+		console.log(`[DxfToGdsConverter] Scale factor: ${scaleFactor} (${unitName} to database units)`);
+	}
+
 	for (let i = 0; i < entities.length; i++) {
 		const entity = entities[i];
 		if (!entity) continue;
@@ -269,7 +358,7 @@ export async function convertDxfToGds(
 			layerMap.set(`${entityLayerNumber}:0`, newLayer);
 		}
 
-		const polygon = convertEntityToPolygon(entity, entityLayerNumber);
+		const polygon = convertEntityToPolygon(entity, entityLayerNumber, scaleFactor);
 		if (polygon) {
 			polygons.push(polygon);
 		}
@@ -312,11 +401,15 @@ export async function convertDxfToGds(
 	};
 
 	// Create GDS document
+	// GDSII units:
+	// - database: size of database unit in meters (1e-9 = 1 nm)
+	// - user: size of user unit in meters (what the original DXF units were)
+	// Coordinates are now in database units (scaled during conversion)
 	const document: GDSDocument = {
 		name: fileName,
 		units: {
-			database: 1e-9, // 1 database unit = 1 nanometer
-			user: 0.001, // 1 user unit = 1 millimeter
+			database, // 1 database unit = 1 nanometer (standard for GDSII)
+			user: dxfUnitInMeters, // Original DXF units (for reference/display)
 		},
 		cells: new Map([[topCell.name, topCell]]),
 		layers: layerMap,
@@ -326,5 +419,9 @@ export async function convertDxfToGds(
 
 	onProgress?.(100, "Conversion complete!");
 
-	return document;
+	return {
+		...document,
+		unitWasAssumed,
+		detectedUnit: unitName,
+	};
 }

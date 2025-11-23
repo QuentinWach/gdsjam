@@ -332,14 +332,14 @@ export class PixiRenderer {
 			const mouseX = e.offsetX;
 			const mouseY = e.offsetY;
 
-			// Convert screen coordinates to world coordinates
+			// Convert screen coordinates to world coordinates (in database units)
 			const worldX = (mouseX - this.mainContainer.x) / this.mainContainer.scale.x;
 			const worldY = (mouseY - this.mainContainer.y) / this.mainContainer.scale.y;
 
 			// Convert to micrometers with nm precision (3 decimal places)
-			const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
-			const worldXMicrometers = worldX * dbToUserUnits;
-			const worldYMicrometers = worldY * dbToUserUnits;
+			// Coordinates are in database units, so: db_units * (database meters) / 1e-6 = micrometers
+			const worldXMicrometers = (worldX * this.documentUnits.database) / 1e-6;
+			const worldYMicrometers = (worldY * this.documentUnits.database) / 1e-6;
 
 			this.coordsText.text = `X: ${worldXMicrometers.toFixed(3)} µm, Y: ${worldYMicrometers.toFixed(3)} µm`;
 		});
@@ -728,8 +728,8 @@ export class PixiRenderer {
 		}
 
 		// Convert database units to micrometers
-		const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
-		const viewWidthUserUnits = viewWidthDB * dbToUserUnits;
+		// Coordinates are in database units, so: db_units * (database meters) / 1e-6 = micrometers
+		const viewWidthMicrometers = (viewWidthDB * this.documentUnits.database) / 1e-6;
 
 		// Calculate the scale bar width that would be shown at current viewport width
 		// Scale bar width is calculated as: 10^floor(log10(viewWidth / 4))
@@ -742,7 +742,7 @@ export class PixiRenderer {
 
 		// Calculate minimum scale: current_scale * (current_view_width / max_view_width)
 		const currentScale = Math.abs(this.mainContainer.scale.x);
-		const minScale = currentScale * (viewWidthUserUnits / maxViewWidthMicrometers);
+		const minScale = currentScale * (viewWidthMicrometers / maxViewWidthMicrometers);
 
 		return minScale;
 	}
@@ -761,8 +761,8 @@ export class PixiRenderer {
 		}
 
 		// Convert database units to micrometers
-		const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
-		const viewWidthUserUnits = viewWidthDB * dbToUserUnits;
+		// Coordinates are in database units, so: db_units * (database meters) / 1e-6 = micrometers
+		const viewWidthMicrometers = (viewWidthDB * this.documentUnits.database) / 1e-6;
 
 		// We want the scale bar to be at least 1 nm (0.001 µm)
 		// So: 10^floor(log10(viewWidth / 4)) >= 0.001
@@ -772,7 +772,7 @@ export class PixiRenderer {
 
 		// Calculate maximum scale: current_scale * (current_view_width / min_view_width)
 		const currentScale = Math.abs(this.mainContainer.scale.x);
-		const maxScale = currentScale * (viewWidthUserUnits / minViewWidthMicrometers);
+		const maxScale = currentScale * (viewWidthMicrometers / minViewWidthMicrometers);
 
 		return maxScale;
 	}
@@ -1023,20 +1023,16 @@ export class PixiRenderer {
 		const viewWidthDB = bounds.maxX - bounds.minX;
 
 		// Convert database units to micrometers
-		// Coordinates are in database units (typically nanometers)
-		// database unit = database meters, user unit = user meters
-		// To convert to µm: db_units * (database / user) because user is typically 1e-6 (1 µm)
-		const dbToUserUnits = this.documentUnits.database / this.documentUnits.user;
-		const viewWidthUserUnits = viewWidthDB * dbToUserUnits;
-
-		// User units are typically micrometers (1e-6 meters)
-		const viewWidthMicrometers = viewWidthUserUnits;
+		// Coordinates are ALWAYS in database units (for both GDS and DXF files)
+		// database unit = size in meters, so: db_units * (database meters) / 1e-6 = micrometers
+		const viewWidthMicrometers = (viewWidthDB * this.documentUnits.database) / 1e-6;
 
 		// Calculate nice round number for bar width in micrometers
 		const barWidthMicrometers = 10 ** Math.floor(Math.log10(viewWidthMicrometers / 4));
 
 		// Convert back to database units for pixel calculation
-		const barWidthDB = barWidthMicrometers / dbToUserUnits;
+		// micrometers * 1e-6 / (database meters) = database units
+		const barWidthDB = (barWidthMicrometers * 1e-6) / this.documentUnits.database;
 		const barWidthPixels = barWidthDB * this.mainContainer.scale.x;
 
 		const graphics = new Graphics();

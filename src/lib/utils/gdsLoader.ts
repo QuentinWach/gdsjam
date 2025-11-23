@@ -58,13 +58,24 @@ export async function loadGDSIIFromBuffer(
 			// Convert DXF to GDSII
 			gdsStore.setLoading(true, "Converting DXF to GDSII...", 5);
 
-			const document = await convertDxfToGds(
+			const result = await convertDxfToGds(
 				new Uint8Array(arrayBuffer),
 				fileName,
 				(progress, message) => {
 					gdsStore.updateProgress(progress, message);
 				},
 			);
+
+			const document = result;
+
+			// Log warning if units were assumed
+			if (result.unitWasAssumed) {
+				console.warn(
+					`[gdsLoader] DXF file units were assumed to be: ${result.detectedUnit}. ` +
+						"If this is incorrect, the layout size and scale will be wrong. " +
+						"Please ensure your DXF file has $INSUNITS header set correctly.",
+				);
+			}
 
 			// Create statistics for DXF conversion
 			const layerStats = new Map<
@@ -93,6 +104,14 @@ export async function loadGDSIIFromBuffer(
 				}
 			}
 
+			// Convert layout dimensions to micrometers
+			// Bounding box is in database units (coordinates were scaled during conversion)
+			// So: (database units) * (database meters) / 1e-6 = micrometers
+			const layoutWidth =
+				((document.boundingBox.maxX - document.boundingBox.minX) * document.units.database) / 1e-6;
+			const layoutHeight =
+				((document.boundingBox.maxY - document.boundingBox.minY) * document.units.database) / 1e-6;
+
 			const statistics = {
 				fileName,
 				fileSizeBytes: arrayBuffer.byteLength,
@@ -107,8 +126,8 @@ export async function loadGDSIIFromBuffer(
 				totalInstances: 0,
 				layerStats,
 				boundingBox: document.boundingBox,
-				layoutWidth: (document.boundingBox.maxX - document.boundingBox.minX) * 1e6, // Convert to micrometers
-				layoutHeight: (document.boundingBox.maxY - document.boundingBox.minY) * 1e6,
+				layoutWidth,
+				layoutHeight,
 			};
 
 			gdsStore.setDocument(document, fileName, statistics);
