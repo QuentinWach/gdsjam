@@ -862,9 +862,10 @@ export class PixiRenderer {
 		// Update zoom thresholds based on current zoom
 		this.updateZoomThresholds(Math.abs(this.mainContainer.scale.x));
 
-		// Swap containers: remove old, add new
+		// Swap containers: remove old, add new at correct z-index
+		// Z-order: gridContainer (0), mainContainer (1), UI overlays (2+)
 		this.app.stage.removeChild(oldMainContainer);
-		this.app.stage.addChild(this.mainContainer);
+		this.app.stage.addChildAt(this.mainContainer, 1);
 
 		// Destroy old graphics
 		for (const item of oldGraphicsItems) {
@@ -1265,7 +1266,15 @@ export class PixiRenderer {
 		// Use overrideScale if provided (during re-renders), otherwise use current scale
 		const currentScale = overrideScale ?? this.mainContainer.scale.x;
 		const desiredScreenPixels = 2.0;
-		const strokeWidthDB = desiredScreenPixels / currentScale;
+		let strokeWidthDB = desiredScreenPixels / currentScale;
+
+		// Clamp stroke width to prevent it from becoming too small at high zoom levels
+		// Pixi.js has trouble rendering strokes smaller than ~0.1 units
+		// At very high zoom (e.g., 100nm scale bar), strokeWidthDB might be < 0.01
+		const minStrokeWidthDB = 0.1;
+		if (strokeWidthDB < minStrokeWidthDB) {
+			strokeWidthDB = minStrokeWidthDB;
+		}
 
 		console.log(
 			`[Render] Cell ${cell.name}: strokeWidthDB=${strokeWidthDB.toExponential(2)} DB units, scale=${currentScale.toExponential(3)}, expected screen pixels=${desiredScreenPixels}`,
