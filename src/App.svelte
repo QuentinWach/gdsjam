@@ -10,7 +10,7 @@ import { gdsStore } from "./stores/gdsStore";
 <main class="app-main">
 	<div class="header">
 		<h1 class="title">GDSJam</h1>
-		<p class="subtitle">Collaborative GDSII Viewer</p>
+		<p class="subtitle">Collaborative (not yet) GDSII Viewer</p>
 		{#if $gdsStore.fileName}
 			<p class="file-name">Loaded: {$gdsStore.fileName}</p>
 		{/if}
@@ -52,8 +52,11 @@ import { gdsStore } from "./stores/gdsStore";
 	</div>
 
 	<div class="controls-info">
-		<p class="text-sm text-gray-400">
+		<p class="text-sm text-gray-400 keyboard-shortcuts">
 			Controls: Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | Touch: One finger to pan, two fingers to zoom
+		</p>
+		<p class="text-sm text-gray-400 footer-note">
+			This webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>.
 		</p>
 	</div>
 </main>
@@ -216,9 +219,24 @@ import { gdsStore } from "./stores/gdsStore";
 		border-top: 1px solid #333;
 	}
 
-	/* Hide controls info on mobile (use FAB instead) */
+	.footer-note {
+		margin-top: 0.25rem;
+	}
+
+	.creator-link {
+		color: #4a9eff;
+		text-decoration: none;
+		transition: color 0.2s;
+	}
+
+	.creator-link:hover {
+		color: #6bb3ff;
+		text-decoration: underline;
+	}
+
+	/* Hide keyboard shortcuts on mobile (use FAB instead), but keep footer note */
 	@media (max-width: 1023px) {
-		.controls-info {
+		.keyboard-shortcuts {
 			display: none;
 		}
 	}
