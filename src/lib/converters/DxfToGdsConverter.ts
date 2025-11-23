@@ -23,28 +23,38 @@ function generateUUID(): string {
 }
 
 /**
- * Generate a color for a layer based on layer name/number
+ * Generate a color for a layer based on layer number and datatype
+ * Uses the same algorithm as GDSParser for consistency
  * Returns hex color string (e.g., "#ff5733")
  */
-function generateLayerColor(layerName: string): string {
-	// Simple hash function to generate consistent colors
-	let hash = 0;
-	for (let i = 0; i < layerName.length; i++) {
-		hash = layerName.charCodeAt(i) + ((hash << 5) - hash);
-	}
+function generateLayerColor(layer: number, datatype: number): string {
+	// Use same color mapping as GDSParser for consistency
+	const hue = (layer * 137 + datatype * 53) % 360;
+	const saturation = 70;
+	const lightness = 60;
 
-	// Convert hash to RGB
-	const r = (hash & 0xff0000) >> 16;
-	const g = (hash & 0x00ff00) >> 8;
-	const b = hash & 0x0000ff;
+	// Convert HSL to hex
+	const h = hue / 360;
+	const s = saturation / 100;
+	const l = lightness / 100;
 
-	// Ensure colors are vibrant (not too dark)
-	const minBrightness = 100;
-	const adjustedR = Math.max(r, minBrightness);
-	const adjustedG = Math.max(g, minBrightness);
-	const adjustedB = Math.max(b, minBrightness);
+	const hue2rgb = (p: number, q: number, t: number) => {
+		if (t < 0) t += 1;
+		if (t > 1) t -= 1;
+		if (t < 1 / 6) return p + (q - p) * 6 * t;
+		if (t < 1 / 2) return q;
+		if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+		return p;
+	};
 
-	return `#${adjustedR.toString(16).padStart(2, "0")}${adjustedG.toString(16).padStart(2, "0")}${adjustedB.toString(16).padStart(2, "0")}`;
+	const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+	const p = 2 * l - q;
+
+	const r = Math.round(hue2rgb(p, q, h + 1 / 3) * 255);
+	const g = Math.round(hue2rgb(p, q, h) * 255);
+	const b = Math.round(hue2rgb(p, q, h - 1 / 3) * 255);
+
+	return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
 /**
@@ -294,7 +304,7 @@ export async function convertDxfToGds(
 			layer: layerNumber,
 			datatype: 0,
 			name: layerName,
-			color: generateLayerColor(layerName),
+			color: generateLayerColor(layerNumber, 0),
 			visible: true,
 		};
 		layerMap.set(`${layerNumber}:0`, layer);
@@ -352,7 +362,7 @@ export async function convertDxfToGds(
 				layer: entityLayerNumber,
 				datatype: 0,
 				name: entityLayerName,
-				color: generateLayerColor(entityLayerName),
+				color: generateLayerColor(entityLayerNumber, 0),
 				visible: true,
 			};
 			layerMap.set(`${entityLayerNumber}:0`, newLayer);
