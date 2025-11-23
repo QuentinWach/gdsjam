@@ -1,12 +1,42 @@
 # DevLog 001-02: PixiRenderer Refactoring Plan
 
 **Date**: 2025-11-23
-**Status**: Phase 3 Complete
+**Status**: Phase 4 Complete
 **Goal**: Refactor the 1,688-line PixiRenderer class into modular, maintainable components
 
 ---
 
 ## Implementation Progress
+
+### Phase 4: Extract Viewport Manager - COMPLETE
+
+**Date Completed**: 2025-11-23
+**Actual Effort**: ~30 minutes
+
+**Files Created**:
+- `src/lib/renderer/viewport/ViewportManager.ts` (165 lines)
+
+**PixiRenderer Changes**:
+- **Before**: 1,203 lines
+- **After**: 1,136 lines
+- **Reduction**: 67 lines
+
+**What Was Extracted**:
+- `getViewportBounds()` - Viewport bounds calculation with Y-axis flip
+- `updateVisibility()` - Viewport culling and layer visibility filtering
+- `detectNewlyVisibleLayers()` - Layer visibility change detection
+
+**Bug Fixed**:
+- Stroke width scaling in outline mode broke after Phase 3
+- Root cause: LOD extraction removed outline mode re-render logic
+- Solution: Added `shouldRerenderOnZoomChange` callback to LODManager
+- PixiRenderer returns `!this.fillPolygons` to trigger re-renders for stroke width updates
+
+**Lessons Learned**:
+- Test all rendering modes (fill/outline) after extracting rendering-related logic
+- Use optional callbacks for mode-specific behavior in extracted modules
+
+---
 
 ### Phase 3: Extract LOD Manager - COMPLETE
 

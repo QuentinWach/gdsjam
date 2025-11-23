@@ -20,6 +20,7 @@ import { CoordinatesDisplay } from "./overlays/CoordinatesDisplay";
 import { FPSCounter } from "./overlays/FPSCounter";
 import { GridOverlay } from "./overlays/GridOverlay";
 import { ScaleBarOverlay } from "./overlays/ScaleBarOverlay";
+import { ViewportManager } from "./viewport/ViewportManager";
 
 export interface ViewportState {
 	x: number;
@@ -58,6 +59,9 @@ export class PixiRenderer {
 	// LOD Manager
 	private lodManager!: LODManager;
 	private zoomLimits!: ZoomLimits;
+
+	// Viewport Manager
+	private viewportManager!: ViewportManager;
 
 	// UI Overlays
 	private fpsCounter!: FPSCounter;
@@ -157,7 +161,15 @@ export class PixiRenderer {
 				const scaledBudget = this.lodManager.getScaledBudget();
 				return this.visiblePolygonCount / scaledBudget;
 			},
+			shouldRerenderOnZoomChange: () => {
+				// In outline mode, we need to re-render when zoom changes to update stroke widths
+				// Stroke widths are calculated to maintain constant screen pixel width
+				return !this.fillPolygons;
+			},
 		});
+
+		// Initialize viewport manager
+		this.viewportManager = new ViewportManager(this.spatialIndex, () => this.layerVisibility);
 
 		// Initialize input controllers
 		this.inputController = new InputController(this.app.canvas, {
@@ -282,73 +294,22 @@ export class PixiRenderer {
 	 * Perform the actual viewport culling update
 	 */
 	private performViewportUpdate(): void {
-		if (this.allGraphicsItems.length === 0) {
-			if (DEBUG) {
-				console.log("[PixiRenderer] performViewportUpdate: No graphics items");
-			}
-			return;
-		}
+		const viewportBounds = this.viewportManager.getViewportBounds(
+			this.app.screen.width,
+			this.app.screen.height,
+			this.mainContainer.x,
+			this.mainContainer.y,
+			this.mainContainer.scale.x,
+			this.mainContainer.scale.y,
+		);
 
-		const viewportBounds = this.getViewportBounds();
-		const visibleItems = this.spatialIndex.query(viewportBounds);
-		const visibleIds = new Set(visibleItems.map((item) => item.id));
-
-		const currentZoom = Math.abs(this.mainContainer.scale.x);
-
-		// Update visibility of all graphics items (combine viewport + layer visibility)
-		let visiblePolygonCount = 0;
-		let hiddenByLayerCount = 0;
-		let visibleByLayerCount = 0;
-		const layerCounts = new Map<string, { total: number; visible: number }>();
-
-		for (const item of this.allGraphicsItems) {
-			const graphics = item.data as Graphics;
-			const inViewport = visibleIds.has(item.id);
-
-			// Check layer visibility
-			const layerKey = `${item.layer}:${item.datatype}`;
-			const layerVisible = this.layerVisibility.get(layerKey) ?? true;
-
-			const isVisible = inViewport && layerVisible;
-			graphics.visible = isVisible;
-
-			// Track per-layer counts
-			if (!layerCounts.has(layerKey)) {
-				layerCounts.set(layerKey, { total: 0, visible: 0 });
-			}
-			const counts = layerCounts.get(layerKey)!;
-			counts.total++;
-			if (isVisible) counts.visible++;
-
-			if (inViewport) {
-				if (layerVisible) {
-					visibleByLayerCount++;
-				} else {
-					hiddenByLayerCount++;
-				}
-			}
-
-			if (isVisible) {
-				visiblePolygonCount += item.polygonCount || 0;
-			}
-		}
-
-		if (DEBUG) {
-			console.log(
-				`[PixiRenderer] performViewportUpdate: ${this.allGraphicsItems.length} total items, ${visibleIds.size} in viewport, ${visibleByLayerCount} visible by layer, ${hiddenByLayerCount} hidden by layer`,
-			);
-			console.log(
-				`[PixiRenderer] Layer breakdown:`,
-				Array.from(layerCounts.entries())
-					.map(([key, counts]) => `${key}: ${counts.visible}/${counts.total}`)
-					.join(", "),
-			);
-		}
+		const result = this.viewportManager.updateVisibility(viewportBounds, this.allGraphicsItems);
 
 		// Update cached visible polygon count for performance metrics
-		this.visiblePolygonCount = visiblePolygonCount;
+		this.visiblePolygonCount = result.visiblePolygonCount;
 
 		// Check if zoom has changed significantly and trigger LOD update
+		const currentZoom = Math.abs(this.mainContainer.scale.x);
 		this.lodManager.checkAndTriggerRerender(currentZoom, this.isRerendering);
 	}
 
@@ -369,19 +330,11 @@ export class PixiRenderer {
 		}
 
 		// Detect newly visible layers that need to be rendered
-		const newlyVisibleLayers: string[] = [];
-		for (const [key, visible] of Object.entries(visibility)) {
-			const wasVisible = this.layerVisibility.get(key) ?? true;
-			if (visible && !wasVisible) {
-				// Check if this layer has any rendered graphics
-				const hasGraphics = this.allGraphicsItems.some(
-					(item) => `${item.layer}:${item.datatype}` === key,
-				);
-				if (!hasGraphics) {
-					newlyVisibleLayers.push(key);
-				}
-			}
-		}
+		const newlyVisibleLayers = this.viewportManager.detectNewlyVisibleLayers(
+			visibility,
+			this.layerVisibility,
+			this.allGraphicsItems,
+		);
 
 		// Update internal visibility map
 		this.layerVisibility.clear();
@@ -511,29 +464,14 @@ export class PixiRenderer {
 	 * Get current viewport bounds in world coordinates
 	 */
 	private getViewportBounds(): BoundingBox {
-		const scale = this.mainContainer.scale.x;
-		const scaleY = this.mainContainer.scale.y;
-		const x = -this.mainContainer.x / scale;
-		const y = -this.mainContainer.y / scaleY;
-		const width = this.app.screen.width / scale;
-		const height = this.app.screen.height / Math.abs(scaleY);
-
-		// Account for Y-axis flip
-		if (scaleY < 0) {
-			return {
-				minX: x,
-				minY: y - height,
-				maxX: x + width,
-				maxY: y,
-			};
-		}
-
-		return {
-			minX: x,
-			minY: y,
-			maxX: x + width,
-			maxY: y + height,
-		};
+		return this.viewportManager.getViewportBounds(
+			this.app.screen.width,
+			this.app.screen.height,
+			this.mainContainer.x,
+			this.mainContainer.y,
+			this.mainContainer.scale.x,
+			this.mainContainer.scale.y,
+		);
 	}
 
 	/**

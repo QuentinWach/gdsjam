@@ -29,6 +29,7 @@ export class LODManager {
 		private callbacks: {
 			onDepthChange: (newDepth: number) => void;
 			getBudgetUtilization: () => number;
+			shouldRerenderOnZoomChange?: () => boolean; // Optional: check if re-render needed even without depth change (e.g., outline mode)
 		},
 	) {}
 
@@ -145,8 +146,22 @@ export class LODManager {
 			}
 		}
 
-		// Only trigger re-render if depth changed
-		if (newDepth !== this.currentDepth) {
+		// Check if re-render is needed
+		const depthChanged = newDepth !== this.currentDepth;
+		const shouldRerenderAnyway = this.callbacks.shouldRerenderOnZoomChange?.() ?? false;
+		const shouldRerender = depthChanged || shouldRerenderAnyway;
+
+		if (shouldRerender) {
+			if (DEBUG) {
+				if (depthChanged) {
+					console.log(`[LOD] Depth change triggered re-render: ${this.currentDepth} → ${newDepth}`);
+				} else {
+					console.log(
+						`[LOD] Zoom threshold crossed - re-rendering (e.g., to update stroke widths in outline mode)`,
+					);
+				}
+			}
+
 			this.currentDepth = newDepth;
 			this.lastLODChangeTime = now;
 
