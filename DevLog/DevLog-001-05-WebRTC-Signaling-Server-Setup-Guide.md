@@ -442,14 +442,48 @@ tail -f logs/server_*.log
 pnpm stop
 ```
 
+### SSL/TLS Configuration (2025-11-24)
+
+Production deployment now uses secure WebSocket connections (wss://) via Nginx reverse proxy:
+
+**Domain**: `signaling.gdsjam.com`
+
+**Architecture**:
+- Nginx handles SSL termination on port 443
+- Proxies WebSocket connections to Node.js server on localhost:4444
+- Let's Encrypt certificate with automatic renewal
+- HTTP to HTTPS redirect enforced
+
+**Nginx Configuration** (`/etc/nginx/sites-available/signaling`):
+- WebSocket upgrade headers properly configured
+- Extended timeouts for long-lived connections (86400 seconds)
+- SSL certificate managed by Certbot
+
+**DNS Configuration**:
+- A record: `signaling.gdsjam.com` pointing to server IP
+- Cloudflare proxy disabled (DNS only) for WebSocket compatibility
+
+**Certificate Details**:
+- Certificate path: `/etc/letsencrypt/live/signaling.gdsjam.com/fullchain.pem`
+- Auto-renewal configured via Certbot
+- Expires: 2026-02-21
+
+**Deployment Notes**:
+- Node.js server remains on HTTP (localhost:4444)
+- SSL termination handled by Nginx for better performance
+- No changes required to server.js implementation
+- Token authentication and rate limiting remain functional through proxy
+
 ### Client Integration
 
-The GDSJam client should connect with:
+The GDSJam client connects to the production signaling server:
 
 ```typescript
 const token = import.meta.env.VITE_SIGNALING_TOKEN;
-const ws = new WebSocket(`wss://signaling.yourdomain.com?token=${token}`);
+const ws = new WebSocket(`wss://signaling.gdsjam.com?token=${token}`);
 ```
+
+**Local Development**: Client should connect to `wss://signaling.gdsjam.com?token=${token}` (production server). Alternatively, run the signaling server locally with `cd server && pnpm start`, then connect to `ws://localhost:4444?token=${token}`.
 
 **Note**: Room codes for isolating peer connections will be handled entirely client-side. The server simply broadcasts all messages to all connected clients.
 
