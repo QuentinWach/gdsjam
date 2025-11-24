@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Y-WebRTC Signaling Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .share-url {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            word-break: break-all;
+            margin-top: 10px;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Y-WebRTC Signaling Test</h1>
+
+    <div class="info-box">
+        <strong>Share this URL to join the same room:</strong>
+        <div class="share-url" id="shareUrl">Loading...</div>
+        <button onclick="copyUrl()">Copy URL</button>
+    </div>
+
+    <div id="status" style="padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; margin-bottom: 10px;">Connecting...</div>
+    <div id="peers" style="padding: 10px; background: #d1ecf1; border: 1px solid #0c5460; border-radius: 4px; margin-bottom: 10px;">Peers: 0</div>
+    <div id="awareness" style="padding: 10px; background: #d4edda; border: 1px solid #28a745; border-radius: 4px; margin-bottom: 10px;">Awareness: 0</div>
+    <div id="logs" style="font-family: monospace; white-space: pre; background: #f0f0f0; padding: 10px; margin-top: 20px; max-height: 400px; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px;"></div>
+
+    <script type="module">
+        import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13/+esm';
+        import { WebrtcProvider } from 'https://cdn.jsdelivr.net/npm/y-webrtc@10/+esm';
+
+        // Enable y-webrtc logging
+        localStorage.setItem('log', 'y-webrtc');
+
+        const logsDiv = document.getElementById('logs');
+        const originalLog = console.log;
+        const originalError = console.error;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            logsDiv.textContent += '[LOG] ' + args.join(' ') + '\n';
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        };
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            logsDiv.textContent += '[ERROR] ' + args.join(' ') + '\n';
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        };
+
+        const ydoc = new Y.Doc();
+
+        // Use your signaling server with token authentication
+        const signalingToken = '927e3890630dd9786c995bfde756a27468b6c4c6ae25a4011e364c158207cb9c';
+
+        // Production server with SSL and token
+        // IMPORTANT: y-webrtc might add a trailing slash, so test both formats
+        const signalingUrl = `wss://signaling.gdsjam.com?token=${signalingToken}`;
+
+        // For local testing:
+        // const signalingUrl = `ws://localhost:4444?token=${signalingToken}`;
+
+        console.log('Signaling URL:', signalingUrl);
+        console.log('Testing WebSocket connection first...');
+
+        // Test raw WebSocket connection before y-webrtc
+        const testWs = new WebSocket(signalingUrl);
+        testWs.onopen = () => {
+            console.log('✅ Raw WebSocket connected successfully!');
+            testWs.close();
+        };
+        testWs.onerror = (error) => {
+            console.error('❌ Raw WebSocket failed:', error);
+        };
+        testWs.onclose = (event) => {
+            console.log('Raw WebSocket closed. Code:', event.code, 'Reason:', event.reason);
+        };
+
+        // Get room from URL parameter or create new one
+        const urlParams = new URLSearchParams(window.location.search);
+        let roomName = urlParams.get('room');
+
+        if (!roomName) {
+            // Create new room
+            roomName = 'test-room-' + Math.random().toString(36).substring(7);
+            // Update URL
+            const url = new URL(window.location.href);
+            url.searchParams.set('room', roomName);
+            window.history.pushState({}, '', url.toString());
+        }
+
+        // Display shareable URL
+        const shareUrl = window.location.href;
+        document.getElementById('shareUrl').textContent = shareUrl;
+
+        console.log('Room name:', roomName);
+        console.log('Signaling server:', signalingUrl);
+        console.log('Share this URL to join:', shareUrl);
+
+        console.log('Creating WebrtcProvider with signaling:', [signalingUrl]);
+
+        const provider = new WebrtcProvider(roomName, ydoc, {
+            // IMPORTANT: Only use our signaling server, not the defaults
+            signaling: [signalingUrl],
+            password: null,
+            maxConns: 20,
+            filterBcConns: true, // Disable BroadcastChannel to force WebRTC
+            peerOpts: {
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' }
+                    ]
+                }
+            }
+        });
+
+        console.log('WebrtcProvider created');
+
+        provider.on('synced', (event) => {
+            console.log('Synced:', event.synced);
+            document.getElementById('status').textContent = 'Status: ' + (event.synced ? 'Synced' : 'Syncing...');
+        });
+
+        provider.on('peers', (event) => {
+            console.log('Peers changed:', event);
+            const peerCount = event.added.length + event.removed.length;
+            document.getElementById('peers').textContent = 'Peers: ' + peerCount;
+        });
+
+        provider.awareness.on('change', () => {
+            const states = Array.from(provider.awareness.getStates().entries());
+            console.log('Awareness states:', states.length);
+            document.getElementById('awareness').textContent = 'Awareness: ' + states.length;
+        });
+
+        // Set awareness state
+        provider.awareness.setLocalState({
+            user: {
+                name: 'Test User ' + Math.floor(Math.random() * 1000),
+                color: '#' + Math.floor(Math.random()*16777215).toString(16)
+            }
+        });
+
+        console.log('Provider created, waiting for connections...');
+
+        // Make copyUrl function global
+        window.copyUrl = async function() {
+            try {
+                await navigator.clipboard.writeText(shareUrl);
+                console.log('URL copied to clipboard!');
+                alert('URL copied to clipboard!');
+            } catch (error) {
+                console.error('Failed to copy URL:', error);
+                alert('Failed to copy URL. Please copy manually from the box above.');
+            }
+        };
+    </script>
+</body>
+</html>
+

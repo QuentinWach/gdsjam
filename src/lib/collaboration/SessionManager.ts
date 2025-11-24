@@ -76,11 +76,13 @@ export class SessionManager {
 		// Connect to Y.js room
 		this.yjsProvider.connect(sessionId);
 
-		// Initialize session metadata
-		const sessionMap = this.yjsProvider.getMap<any>("session");
-		sessionMap.set("sessionId", sessionId);
-		sessionMap.set("createdAt", Date.now());
-		sessionMap.set("uploadedBy", this.userId);
+		// Initialize session metadata in a single transaction to avoid multiple broadcasts
+		this.yjsProvider.getDoc().transact(() => {
+			const sessionMap = this.yjsProvider.getMap<any>("session");
+			sessionMap.set("sessionId", sessionId);
+			sessionMap.set("createdAt", Date.now());
+			sessionMap.set("uploadedBy", this.userId);
+		});
 
 		if (DEBUG) {
 			console.log("[SessionManager] Created session:", sessionId);

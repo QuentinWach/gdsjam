@@ -71,13 +71,15 @@ export class FileTransfer {
 			console.log(`[FileTransfer] Created ${totalChunks} chunks`);
 		}
 
-		// Store session metadata
-		const sessionMap = this.ydoc.getMap<any>("session");
-		sessionMap.set("fileHash", fileHash);
-		sessionMap.set("fileName", fileName);
-		sessionMap.set("fileSize", arrayBuffer.byteLength);
-		sessionMap.set("uploadedBy", userId);
-		sessionMap.set("uploadedAt", Date.now());
+		// Store session metadata in a single transaction to avoid multiple broadcasts
+		this.ydoc.transact(() => {
+			const sessionMap = this.ydoc.getMap<any>("session");
+			sessionMap.set("fileHash", fileHash);
+			sessionMap.set("fileName", fileName);
+			sessionMap.set("fileSize", arrayBuffer.byteLength);
+			sessionMap.set("uploadedBy", userId);
+			sessionMap.set("uploadedAt", Date.now());
+		});
 
 		this.onProgress?.(20, "Uploading chunks to session...");
 

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebRTC Diagnostic</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        h1 { color: #4fc3f7; }
+        .box { background: #2d2d2d; padding: 15px; margin: 10px 0; border-radius: 4px; border-left: 4px solid #4fc3f7; }
+        .success { border-left-color: #81c784; }
+        .error { border-left-color: #e57373; }
+        .warning { border-left-color: #ffb74d; }
+        button { background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #1976d2; }
+        pre { background: #1e1e1e; padding: 10px; overflow-x: auto; }
+        .share { background: #2196f3; color: white; padding: 15px; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🔬 WebRTC Connection Diagnostic</h1>
+    
+    <div class="share">
+        <strong>Share URL:</strong> <span id="shareUrl"></span><br>
+        <button onclick="copyUrl()">Copy URL</button>
+        <button onclick="location.reload()">New Room</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="logs"></div>
+
+    <script type="module">
+        import * as Y from 'https://cdn.jsdelivr.net/npm/yjs@13/+esm';
+        import { WebrtcProvider } from 'https://cdn.jsdelivr.net/npm/y-webrtc@10/+esm';
+
+        const statusDiv = document.getElementById('status');
+        const logsDiv = document.getElementById('logs');
+
+        function addBox(message, type = 'box') {
+            const box = document.createElement('div');
+            box.className = type;
+            box.innerHTML = message;
+            logsDiv.appendChild(box);
+            console.log(message.replace(/<[^>]*>/g, ''));
+        }
+
+        // Get room from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let room = urlParams.get('room');
+        if (!room) {
+            room = 'test-' + Math.random().toString(36).substring(2, 10);
+            const url = new URL(window.location.href);
+            url.searchParams.set('room', room);
+            window.history.pushState({}, '', url.toString());
+        }
+
+        document.getElementById('shareUrl').textContent = window.location.href;
+        window.copyUrl = () => {
+            navigator.clipboard.writeText(window.location.href);
+            alert('URL copied! Open in another browser/tab.');
+        };
+
+        addBox(`<strong>Room:</strong> ${room}`, 'box');
+        addBox(`<strong>Instructions:</strong> Copy the URL above and open it in a different browser or incognito tab to test P2P connection.`, 'box');
+
+        // Configuration
+        const SIGNALING_URL = 'wss://signaling.gdsjam.com';
+        const SIGNALING_TOKEN = '927e3890630dd9786c995bfde756a27468b6c4c6ae25a4011e364c158207cb9c';
+        const TURN_PASSWORD = '538a7c32642a7a272bb3f1b38d635927';
+
+        // Test 1: WebSocket connection
+        addBox('<strong>Test 1:</strong> Testing WebSocket connection...', 'box');
+        const ws = new WebSocket(`${SIGNALING_URL}?token=${SIGNALING_TOKEN}`);
+        ws.onopen = () => {
+            addBox('✅ WebSocket connected successfully', 'box success');
+            ws.close();
+            startWebRTC();
+        };
+        ws.onerror = () => {
+            addBox('❌ WebSocket connection failed', 'box error');
+        };
+
+        function startWebRTC() {
+            addBox('<strong>Test 2:</strong> Creating Y.js document and WebRTC provider...', 'box');
+            
+            const ydoc = new Y.Doc();
+            
+            const iceServers = [
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                    urls: [
+                        'turn:signaling.gdsjam.com:3478',
+                        'turn:signaling.gdsjam.com:3478?transport=tcp',
+                        'turns:signaling.gdsjam.com:5349?transport=tcp'
+                    ],
+                    username: 'gdsjam',
+                    credential: TURN_PASSWORD
+                }
+            ];
+
+            addBox(`ICE Servers: <pre>${JSON.stringify(iceServers, null, 2)}</pre>`, 'box');
+
+            const provider = new WebrtcProvider(room, ydoc, {
+                signaling: [`${SIGNALING_URL}?token=${SIGNALING_TOKEN}`],
+                password: null,
+                maxConns: 20,
+                filterBcConns: false,
+                peerOpts: {
+                    config: {
+                        iceServers,
+                        iceTransportPolicy: 'all'
+                    }
+                }
+            });
+
+            addBox('✅ WebRTC provider created', 'box success');
+
+            // Monitor events
+            provider.on('synced', (event) => {
+                if (event.synced) {
+                    addBox('✅ Y.js document synced', 'box success');
+                }
+            });
+
+            provider.on('peers', (event) => {
+                addBox(`<strong>Peers event:</strong><br>
+                    Added: ${JSON.stringify(event.added)}<br>
+                    Removed: ${JSON.stringify(event.removed)}<br>
+                    WebRTC peers: ${JSON.stringify(event.webrtcPeers)}`, 
+                    event.webrtcPeers.length > 0 ? 'box success' : 'box warning');
+                
+                if (event.webrtcPeers.length > 0) {
+                    statusDiv.innerHTML = `<div class="box success"><strong>✅ CONNECTED TO ${event.webrtcPeers.length} PEER(S)</strong></div>`;
+                }
+            });
+
+            provider.awareness.on('change', () => {
+                const states = provider.awareness.getStates();
+                addBox(`Awareness: ${states.size} clients`, 'box');
+            });
+
+            // Test data transfer
+            const testMap = ydoc.getMap('test');
+            const testArray = ydoc.getArray('chunks');
+
+            testMap.observe(() => {
+                const data = testMap.toJSON();
+                addBox(`📥 <strong>Received data via Y.js Map:</strong><br><pre>${JSON.stringify(data, null, 2)}</pre>`, 'box success');
+            });
+
+            testArray.observe(() => {
+                addBox(`📥 <strong>Received chunks:</strong> ${testArray.length} chunks`, 'box success');
+            });
+
+            // Send test data after 2 seconds
+            setTimeout(() => {
+                addBox('📤 Sending test data...', 'box');
+                testMap.set('message', 'Hello from ' + room);
+                testMap.set('timestamp', Date.now());
+                
+                // Send test chunks
+                for (let i = 0; i < 5; i++) {
+                    const chunk = new Uint8Array(1024);
+                    chunk.fill(i);
+                    testArray.push([chunk]);
+                }
+                addBox('✅ Sent test data (5 chunks)', 'box success');
+            }, 2000);
+
+            // Monitor WebRTC internals
+            setTimeout(() => {
+                if (provider.room && provider.room.webrtcConns) {
+                    addBox(`<strong>WebRTC connections map size:</strong> ${provider.room.webrtcConns.size}`, 'box');
+                    
+                    provider.room.webrtcConns.forEach((conn, key) => {
+                        if (conn.peer) {
+                            const pc = conn.peer;
+                            addBox(`<strong>Peer ${key}:</strong><br>
+                                Connection: ${pc.connectionState}<br>
+                                ICE: ${pc.iceConnectionState}<br>
+                                Signaling: ${pc.signalingState}`, 'box');
+                        }
+                    });
+                }
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+
