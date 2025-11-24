@@ -1,22 +1,26 @@
-const http = require('http');
-const WebSocket = require('ws');
-const url = require('url');
+const http = require("http");
+const WebSocket = require("ws");
+const url = require("url");
 
 const PORT = process.env.PORT || 4444;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['https://gdsjam.com', 'http://localhost:5173', 'http://localhost:4173'];
+	? process.env.ALLOWED_ORIGINS.split(",")
+	: ["https://gdsjam.com", "http://localhost:5173", "http://localhost:4173"];
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const RATE_LIMIT_MAX_CONNECTIONS = 10; // Max connections per IP per window
 
 // Rate limiting: Track connections per IP
 const connectionTracker = new Map();
 
+// Room management: Track which clients are in which rooms
+// Map<roomName, Set<WebSocket>>
+const rooms = new Map();
+
 // Create HTTP server
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('GDSJam WebRTC Signaling Server\n');
+	res.writeHead(200, { "Content-Type": "text/plain" });
+	res.end("GDSJam WebRTC Signaling Server\n");
 });
 
 // Create WebSocket server with noServer option for custom upgrade handling
@@ -26,98 +30,187 @@ const wss = new WebSocket.Server({ noServer: true });
 let connectionCount = 0;
 
 // Handle upgrade requests
-server.on('upgrade', (req, socket, head) => {
-  const clientIp = req.socket.remoteAddress;
+server.on("upgrade", (req, socket, head) => {
+	const clientIp = req.socket.remoteAddress;
 
-  // 1. Origin check
-  const origin = req.headers.origin;
-  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
-    console.log(`[${new Date().toISOString()}] Rejected connection from unauthorized origin: ${origin} (IP: ${clientIp})`);
-    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-    socket.destroy();
-    return;
-  }
+	// 1. Origin check
+	const origin = req.headers.origin;
+	if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+		console.log(
+			`[${new Date().toISOString()}] Rejected connection from unauthorized origin: ${origin} (IP: ${clientIp})`,
+		);
+		socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+		socket.destroy();
+		return;
+	}
 
-  // 2. Token authentication
-  if (AUTH_TOKEN) {
-    const queryParams = url.parse(req.url, true).query;
-    const token = queryParams.token;
+	// 2. Token authentication
+	if (AUTH_TOKEN) {
+		const queryParams = url.parse(req.url, true).query;
+		const token = queryParams.token;
 
-    if (token !== AUTH_TOKEN) {
-      console.log(`[${new Date().toISOString()}] Rejected connection with invalid token from ${clientIp}`);
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-  }
+		if (token !== AUTH_TOKEN) {
+			console.log(
+				`[${new Date().toISOString()}] Rejected connection with invalid token from ${clientIp}`,
+			);
+			socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+			socket.destroy();
+			return;
+		}
+	}
 
-  // 3. Rate limiting
-  const now = Date.now();
-  if (!connectionTracker.has(clientIp)) {
-    connectionTracker.set(clientIp, []);
-  }
+	// 3. Rate limiting
+	const now = Date.now();
+	if (!connectionTracker.has(clientIp)) {
+		connectionTracker.set(clientIp, []);
+	}
 
-  const ipConnections = connectionTracker.get(clientIp);
-  // Remove old connection timestamps outside the window
-  const recentConnections = ipConnections.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+	const ipConnections = connectionTracker.get(clientIp);
+	// Remove old connection timestamps outside the window
+	const recentConnections = ipConnections.filter(
+		(timestamp) => now - timestamp < RATE_LIMIT_WINDOW,
+	);
 
-  if (recentConnections.length >= RATE_LIMIT_MAX_CONNECTIONS) {
-    console.log(`[${new Date().toISOString()}] Rate limit exceeded for ${clientIp}`);
-    socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
-    socket.destroy();
-    return;
-  }
+	if (recentConnections.length >= RATE_LIMIT_MAX_CONNECTIONS) {
+		console.log(`[${new Date().toISOString()}] Rate limit exceeded for ${clientIp}`);
+		socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+		socket.destroy();
+		return;
+	}
 
-  recentConnections.push(now);
-  connectionTracker.set(clientIp, recentConnections);
+	recentConnections.push(now);
+	connectionTracker.set(clientIp, recentConnections);
 
-  // All checks passed, upgrade to WebSocket
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req);
-  });
+	// All checks passed, upgrade to WebSocket
+	wss.handleUpgrade(req, socket, head, (ws) => {
+		wss.emit("connection", ws, req);
+	});
 });
 
-wss.on('connection', (ws, req) => {
-  connectionCount++;
-  const clientId = connectionCount;
-  const clientIp = req.socket.remoteAddress;
+wss.on("connection", (ws, req) => {
+	connectionCount++;
+	const clientId = connectionCount;
+	const clientIp = req.socket.remoteAddress;
 
-  console.log(`[${new Date().toISOString()}] Client ${clientId} connected from ${clientIp}`);
-  console.log(`Active connections: ${wss.clients.size}`);
+	console.log(`[${new Date().toISOString()}] Client ${clientId} connected from ${clientIp}`);
+	console.log(`Active connections: ${wss.clients.size}`);
 
-  ws.on('message', (message) => {
-    // Broadcast message to all other connected clients
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
-  });
+	// Track which rooms this client is in
+	ws.rooms = new Set();
 
-  ws.on('close', () => {
-    console.log(`[${new Date().toISOString()}] Client ${clientId} disconnected`);
-    console.log(`Active connections: ${wss.clients.size}`);
-  });
+	ws.on("message", (data) => {
+		try {
+			// Parse y-webrtc signaling message
+			// y-webrtc sends messages in format: { type: 'subscribe' | 'unsubscribe' | 'publish', topics: [roomName, ...], ... }
+			const message = JSON.parse(data);
 
-  ws.on('error', (error) => {
-    console.error(`[${new Date().toISOString()}] Client ${clientId} error:`, error.message);
-  });
+			// Handle room subscription (y-webrtc 'subscribe' message)
+			if (message.type === "subscribe" && Array.isArray(message.topics)) {
+				for (const topic of message.topics) {
+					// Add client to room
+					if (!rooms.has(topic)) {
+						rooms.set(topic, new Set());
+					}
+					rooms.get(topic).add(ws);
+					ws.rooms.add(topic);
+					console.log(
+						`[${new Date().toISOString()}] Client ${clientId} subscribed to room: ${topic}`,
+					);
+					console.log(`  Room ${topic} now has ${rooms.get(topic).size} clients`);
+				}
+			}
+
+			// Handle room unsubscription (y-webrtc 'unsubscribe' message)
+			if (message.type === "unsubscribe" && Array.isArray(message.topics)) {
+				for (const topic of message.topics) {
+					if (rooms.has(topic)) {
+						rooms.get(topic).delete(ws);
+						ws.rooms.delete(topic);
+						console.log(
+							`[${new Date().toISOString()}] Client ${clientId} unsubscribed from room: ${topic}`,
+						);
+						// Clean up empty rooms
+						if (rooms.get(topic).size === 0) {
+							rooms.delete(topic);
+							console.log(`  Room ${topic} is now empty and removed`);
+						} else {
+							console.log(`  Room ${topic} now has ${rooms.get(topic).size} clients`);
+						}
+					}
+				}
+			}
+
+			// Handle message publishing (y-webrtc 'publish' message)
+			if (message.type === "publish" && Array.isArray(message.topics)) {
+				// Broadcast to all clients in the same rooms
+				const targetClients = new Set();
+				for (const topic of message.topics) {
+					if (rooms.has(topic)) {
+						for (const client of rooms.get(topic)) {
+							if (client !== ws && client.readyState === WebSocket.OPEN) {
+								targetClients.add(client);
+							}
+						}
+					}
+				}
+
+				// Send message to all target clients
+				for (const client of targetClients) {
+					client.send(data);
+				}
+
+				if (targetClients.size > 0) {
+					console.log(
+						`[${new Date().toISOString()}] Client ${clientId} published to ${targetClients.size} peers in rooms: ${message.topics.join(", ")}`,
+					);
+				}
+			}
+		} catch (error) {
+			// If message is not JSON or doesn't match y-webrtc format, log and ignore
+			console.error(
+				`[${new Date().toISOString()}] Client ${clientId} sent invalid message:`,
+				error.message,
+			);
+		}
+	});
+
+	ws.on("close", () => {
+		// Remove client from all rooms
+		for (const topic of ws.rooms) {
+			if (rooms.has(topic)) {
+				rooms.get(topic).delete(ws);
+				if (rooms.get(topic).size === 0) {
+					rooms.delete(topic);
+				}
+			}
+		}
+		console.log(`[${new Date().toISOString()}] Client ${clientId} disconnected`);
+		console.log(`Active connections: ${wss.clients.size}`);
+	});
+
+	ws.on("error", (error) => {
+		console.error(`[${new Date().toISOString()}] Client ${clientId} error:`, error.message);
+	});
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Signaling server running on port ${PORT}`);
-  console.log(`WebSocket endpoint: ws://0.0.0.0:${PORT}`);
-  console.log(`Security configuration:`);
-  console.log(`  - Token auth: ${AUTH_TOKEN ? 'ENABLED' : 'DISABLED (WARNING: anyone can connect!)'}`);
-  console.log(`  - Origin checking: ENABLED (${ALLOWED_ORIGINS.length} allowed origins)`);
-  console.log(`  - Rate limiting: ${RATE_LIMIT_MAX_CONNECTIONS} connections per IP per ${RATE_LIMIT_WINDOW / 1000}s`);
+server.listen(PORT, "0.0.0.0", () => {
+	console.log(`Signaling server running on port ${PORT}`);
+	console.log(`WebSocket endpoint: ws://0.0.0.0:${PORT}`);
+	console.log(`Security configuration:`);
+	console.log(
+		`  - Token auth: ${AUTH_TOKEN ? "ENABLED" : "DISABLED (WARNING: anyone can connect!)"}`,
+	);
+	console.log(`  - Origin checking: ENABLED (${ALLOWED_ORIGINS.length} allowed origins)`);
+	console.log(
+		`  - Rate limiting: ${RATE_LIMIT_MAX_CONNECTIONS} connections per IP per ${RATE_LIMIT_WINDOW / 1000}s`,
+	);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, closing server...');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+process.on("SIGTERM", () => {
+	console.log("SIGTERM received, closing server...");
+	server.close(() => {
+		console.log("Server closed");
+		process.exit(0);
+	});
 });

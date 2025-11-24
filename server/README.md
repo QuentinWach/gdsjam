@@ -207,6 +207,13 @@ For setup details, see [DevLog-001-06-TURN-Server-Setup.md](../DevLog/DevLog-001
 
 ## How it works
 
-The signaling server broadcasts WebRTC signaling messages (SDP offers/answers, ICE candidates) to all connected peers. Each peer filters messages meant for them based on the WebRTC protocol.
+The signaling server implements **room-based message routing** for y-webrtc:
+
+1. **Room Subscription**: Clients send `subscribe` messages with room names (topics)
+2. **Message Publishing**: Clients send `publish` messages to specific rooms
+3. **Targeted Broadcasting**: Server only forwards messages to clients in the same room
+4. **Automatic Cleanup**: Empty rooms are removed when all clients leave
+
+This ensures that WebRTC signaling messages (SDP offers/answers, ICE candidates) are only sent to peers in the same collaboration session, not to all connected clients.
 
 After peers establish a direct WebRTC connection, the signaling server is no longer needed for data transfer. If direct connection fails due to NAT/firewall, the TURN server relays the data.
