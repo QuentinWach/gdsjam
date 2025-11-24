@@ -14,8 +14,10 @@ import { DEBUG } from "../config";
 import { computeSHA256 } from "../utils/hash";
 import type { CollaborationEvent, FileChunk, SessionMetadata } from "./types";
 
-// Chunk size: 1MB (balance between transfer efficiency and memory usage)
-const CHUNK_SIZE = 1024 * 1024; // 1MB
+// Chunk size: 16KB (RTCDataChannel message size limit)
+// WebRTC data channels have a default max message size of 16KB
+// See: https://webrtc.link/en/articles/rtcdatachannel-usage-and-message-size-limits/
+const CHUNK_SIZE = 16 * 1024; // 16KB
 
 export interface FileTransferProgress {
 	chunksReceived: number;
@@ -83,33 +85,36 @@ export class FileTransfer {
 
 		this.onProgress?.(20, "Uploading chunks to session...");
 
-		// Store chunks in Y.js Array
-		// Y.js will automatically sync these to all connected peers
-		const chunksArray = this.ydoc.getArray<Uint8Array>("fileChunks");
-		chunksArray.delete(0, chunksArray.length); // Clear any existing chunks
+		// Store chunks in Y.js Array in a single transaction
+		// This prevents multiple broadcasts and reduces network overhead
+		this.ydoc.transact(() => {
+			const chunksArray = this.ydoc.getArray<Uint8Array>("fileChunks");
+			chunksArray.delete(0, chunksArray.length); // Clear any existing chunks
 
-		// Add chunks one by one with progress updates
-		for (let i = 0; i < chunks.length; i++) {
-			chunksArray.push([chunks[i]]);
+			// Add all chunks at once
+			for (let i = 0; i < chunks.length; i++) {
+				chunksArray.push([chunks[i]]);
 
-			if (DEBUG) {
-				console.log(
-					`[FileTransfer] Pushed chunk ${i + 1}/${chunks.length}, array length now: ${chunksArray.length}`,
-				);
+				if (DEBUG) {
+					console.log(
+						`[FileTransfer] Pushed chunk ${i + 1}/${chunks.length}, array length now: ${chunksArray.length}`,
+					);
+				}
+
+				// Update progress every 10 chunks or on last chunk
+				if (i % 10 === 0 || i === chunks.length - 1) {
+					const progress = 20 + Math.floor(((i + 1) / chunks.length) * 80);
+					this.onProgress?.(progress, `Uploading chunks... ${i + 1}/${chunks.length}`);
+				}
 			}
-
-			// Update progress every 10 chunks or on last chunk
-			if (i % 10 === 0 || i === chunks.length - 1) {
-				const progress = 20 + Math.floor(((i + 1) / chunks.length) * 80);
-				this.onProgress?.(progress, `Uploading chunks... ${i + 1}/${chunks.length}`);
-			}
-		}
+		});
 
 		if (DEBUG) {
+			const chunksArray = this.ydoc.getArray<Uint8Array>("fileChunks");
 			console.log(`[FileTransfer] Final chunks array length: ${chunksArray.length}`);
 			console.log(`[FileTransfer] Y.js document state after upload:`);
 			console.log(`  - Session map:`, this.ydoc.getMap("session").toJSON());
-			console.log(`  - File chunks count:`, this.ydoc.getArray("fileChunks").length);
+			console.log(`  - File chunks count:`, chunksArray.length);
 		}
 
 		const elapsed = performance.now() - startTime;
