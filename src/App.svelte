@@ -1,4 +1,5 @@
 <script lang="ts">
+import QRCode from "qrcode";
 import { onMount } from "svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import FileUpload from "./components/ui/FileUpload.svelte";
@@ -173,6 +174,54 @@ async function copySessionLink() {
 		gdsStore.setError("Failed to copy session link to clipboard");
 	}
 }
+
+/**
+ * QR code state and functions
+ */
+let showQRCode = false;
+let qrCodeDataUrl = "";
+
+/**
+ * Toggle QR code panel
+ */
+async function toggleQRCode() {
+	showQRCode = !showQRCode;
+
+	if (showQRCode && !qrCodeDataUrl) {
+		// Generate QR code
+		const sessionId = $collaborationStore.sessionId;
+		if (!sessionId) return;
+
+		const url = new URL(window.location.href);
+		url.searchParams.set("room", sessionId);
+		const link = url.toString();
+
+		try {
+			qrCodeDataUrl = await QRCode.toDataURL(link, {
+				width: 300,
+				margin: 2,
+				color: {
+					dark: "#000000",
+					light: "#FFFFFF",
+				},
+			});
+			if (DEBUG) {
+				console.log("[App] Generated QR code for session link");
+			}
+		} catch (error) {
+			console.error("[App] Failed to generate QR code:", error);
+			gdsStore.setError("Failed to generate QR code");
+		}
+	}
+}
+
+/**
+ * Reset QR code when leaving session
+ */
+$: if (!$collaborationStore.isInSession) {
+	showQRCode = false;
+	qrCodeDataUrl = "";
+}
 </script>
 
 <main class="app-main">
@@ -199,6 +248,9 @@ async function copySessionLink() {
 					<button class="btn btn-secondary" onclick={copySessionLink}>
 						Copy Link
 					</button>
+					<button class="btn btn-secondary" onclick={toggleQRCode}>
+						{showQRCode ? 'Hide QR Code' : 'Show QR Code'}
+					</button>
 					<button class="btn btn-danger" onclick={handleLeaveSession}>
 						Leave Session
 					</button>
@@ -210,6 +262,21 @@ async function copySessionLink() {
 			</div>
 		</div>
 	</div>
+
+	<!-- QR Code Panel - positioned as overlay, not in banner -->
+	{#if $collaborationStore.isInSession && showQRCode}
+		<div class="qr-code-panel">
+			<div class="qr-code-content">
+				<h3 class="qr-code-title">Scan to Join Session</h3>
+				{#if qrCodeDataUrl}
+					<img src={qrCodeDataUrl} alt="Session QR Code" class="qr-code-image" />
+					<p class="qr-code-hint">Scan this QR code with your mobile device to join the session</p>
+				{:else}
+					<p class="qr-code-loading">Generating QR code...</p>
+				{/if}
+			</div>
+		</div>
+	{/if}
 
 	<div class="viewer-wrapper">
 		{#if !$gdsStore.document && !$gdsStore.isLoading}
@@ -539,6 +606,69 @@ async function copySessionLink() {
 	.creator-link:hover {
 		color: #6bb3ff;
 		text-decoration: underline;
+	}
+
+	.qr-code-panel {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		padding: 1.5rem;
+		background: rgba(0, 0, 0, 0.95);
+		border: 1px solid #444;
+		border-radius: 8px;
+		z-index: 1000;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(4px);
+		animation: fadeIn 0.2s ease-out;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: translate(-50%, -50%) scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, -50%) scale(1);
+		}
+	}
+
+	.qr-code-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.qr-code-title {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: #fff;
+	}
+
+	.qr-code-image {
+		width: 300px;
+		height: 300px;
+		border: 4px solid #fff;
+		border-radius: 8px;
+		background-color: #fff;
+	}
+
+	.qr-code-hint {
+		margin: 0;
+		font-size: 0.875rem;
+		color: #888;
+		text-align: center;
+		max-width: 300px;
+	}
+
+	.qr-code-loading {
+		margin: 0;
+		font-size: 0.875rem;
+		color: #4a9eff;
+		padding: 2rem;
 	}
 
 	/* Hide keyboard shortcuts on mobile (use FAB instead), but keep footer note */
