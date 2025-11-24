@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const WebSocket = require("ws");
 const url = require("url");
-const { setupFileRoutes } = require("./fileStorage");
+const { setupFileRoutes, getOpenAPISpec } = require("./fileStorage");
 
 const PORT = process.env.PORT || 4444;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
@@ -37,6 +37,50 @@ app.use(express.urlencoded({ extended: true }));
 
 // Setup file storage routes
 setupFileRoutes(app);
+
+// OpenAPI documentation endpoints
+app.get("/api/openapi.json", (req, res) => {
+	res.json(getOpenAPISpec());
+});
+
+app.get("/api/docs", (req, res) => {
+	res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>GDSJam API Documentation</title>
+	<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+	<style>
+		body { margin: 0; padding: 0; }
+	</style>
+</head>
+<body>
+	<div id="swagger-ui"></div>
+	<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+	<script>
+		window.onload = function() {
+			SwaggerUIBundle({
+				url: "/api/openapi.json",
+				dom_id: '#swagger-ui',
+				deepLinking: true,
+				presets: [
+					SwaggerUIBundle.presets.apis,
+					SwaggerUIStandalonePreset
+				],
+				plugins: [
+					SwaggerUIBundle.plugins.DownloadUrl
+				],
+				layout: "StandaloneLayout"
+			});
+		};
+	</script>
+</body>
+</html>
+	`);
+});
 
 // Default route for HTTP requests
 app.get("/", (req, res) => {

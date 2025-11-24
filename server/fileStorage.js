@@ -114,11 +114,11 @@ function rateLimitUploads(req, res, next) {
  */
 function setupFileRoutes(app) {
 	/**
-	 * POST /api/files/upload
+	 * POST /api/files
 	 * Upload a file and return its fileId (SHA-256 hash)
 	 */
 	app.post(
-		"/api/files/upload",
+		"/api/files",
 		authenticateRequest,
 		rateLimitUploads,
 		upload.single("file"),
@@ -266,7 +266,7 @@ function setupFileRoutes(app) {
 	});
 
 	console.log("File storage routes configured:");
-	console.log(`  - POST /api/files/upload (max size: ${MAX_FILE_SIZE_MB}MB)`);
+	console.log(`  - POST /api/files (max size: ${MAX_FILE_SIZE_MB}MB)`);
 	console.log(`  - GET /api/files/:fileId`);
 	console.log(`  - DELETE /api/files/:fileId`);
 	console.log(`  - Storage path: ${FILE_STORAGE_PATH}`);
@@ -275,4 +275,333 @@ function setupFileRoutes(app) {
 	);
 }
 
-module.exports = { setupFileRoutes };
+/**
+ * Get OpenAPI specification
+ */
+function getOpenAPISpec() {
+	return {
+		openapi: "3.0.0",
+		info: {
+			title: "GDSJam File Storage API",
+			version: "1.0.0",
+			description:
+				"REST API for uploading and downloading GDSII and DXF files for GDSJam collaboration sessions",
+			contact: {
+				name: "GDSJam",
+				url: "https://gdsjam.com",
+			},
+		},
+		servers: [
+			{
+				url: "https://signaling.gdsjam.com",
+				description: "Production server",
+			},
+			{
+				url: "http://localhost:4444",
+				description: "Local development server",
+			},
+		],
+		components: {
+			securitySchemes: {
+				BearerAuth: {
+					type: "http",
+					scheme: "bearer",
+					description: "Bearer token authentication using AUTH_TOKEN",
+				},
+			},
+			schemas: {
+				FileUploadResponse: {
+					type: "object",
+					properties: {
+						fileId: {
+							type: "string",
+							description: "SHA-256 hash of the uploaded file",
+							example: "a1b2c3d4e5f6...",
+							pattern: "^[a-f0-9]{64}$",
+						},
+						size: {
+							type: "integer",
+							description: "File size in bytes",
+							example: 1048576,
+						},
+						deduplicated: {
+							type: "boolean",
+							description: "Whether the file already existed on the server",
+							example: false,
+						},
+					},
+					required: ["fileId", "size", "deduplicated"],
+				},
+				Error: {
+					type: "object",
+					properties: {
+						error: {
+							type: "string",
+							description: "Error message",
+							example: "Invalid file type",
+						},
+					},
+					required: ["error"],
+				},
+				DeleteResponse: {
+					type: "object",
+					properties: {
+						success: {
+							type: "boolean",
+							example: true,
+						},
+						message: {
+							type: "string",
+							example: "File deleted",
+						},
+					},
+				},
+			},
+		},
+		security: [
+			{
+				BearerAuth: [],
+			},
+		],
+		paths: {
+			"/api/files": {
+				post: {
+					summary: "Upload a file",
+					description:
+						"Upload a GDSII or DXF file. Returns the file ID (SHA-256 hash) which can be used to download the file. Files are automatically deduplicated based on content hash.",
+					tags: ["Files"],
+					security: [{ BearerAuth: [] }],
+					requestBody: {
+						required: true,
+						content: {
+							"multipart/form-data": {
+								schema: {
+									type: "object",
+									properties: {
+										file: {
+											type: "string",
+											format: "binary",
+											description: "GDSII or DXF file to upload (max 100MB)",
+										},
+									},
+									required: ["file"],
+								},
+							},
+						},
+					},
+					responses: {
+						200: {
+							description: "File uploaded successfully",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/FileUploadResponse",
+									},
+								},
+							},
+						},
+						400: {
+							description: "Bad request (no file, invalid file type)",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						401: {
+							description: "Unauthorized (missing or invalid token)",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						413: {
+							description: "File too large (max 100MB)",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						429: {
+							description: "Rate limit exceeded (max 10 uploads per hour per IP)",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						500: {
+							description: "Internal server error",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/api/files/{fileId}": {
+				get: {
+					summary: "Download a file",
+					description:
+						"Download a file by its ID (SHA-256 hash). The file is streamed as application/octet-stream.",
+					tags: ["Files"],
+					security: [{ BearerAuth: [] }],
+					parameters: [
+						{
+							name: "fileId",
+							in: "path",
+							required: true,
+							description: "File ID (SHA-256 hash, 64 hex characters)",
+							schema: {
+								type: "string",
+								pattern: "^[a-f0-9]{64}$",
+								example: "a1b2c3d4e5f6...",
+							},
+						},
+					],
+					responses: {
+						200: {
+							description: "File downloaded successfully",
+							content: {
+								"application/octet-stream": {
+									schema: {
+										type: "string",
+										format: "binary",
+									},
+								},
+							},
+						},
+						400: {
+							description: "Invalid fileId format",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						401: {
+							description: "Unauthorized",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						404: {
+							description: "File not found",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						500: {
+							description: "Internal server error",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+					},
+				},
+				delete: {
+					summary: "Delete a file",
+					description:
+						"Delete a file by its ID (SHA-256 hash). Note: Files are automatically deleted after 7 days.",
+					tags: ["Files"],
+					security: [{ BearerAuth: [] }],
+					parameters: [
+						{
+							name: "fileId",
+							in: "path",
+							required: true,
+							description: "File ID (SHA-256 hash, 64 hex characters)",
+							schema: {
+								type: "string",
+								pattern: "^[a-f0-9]{64}$",
+								example: "a1b2c3d4e5f6...",
+							},
+						},
+					],
+					responses: {
+						200: {
+							description: "File deleted successfully",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/DeleteResponse",
+									},
+								},
+							},
+						},
+						400: {
+							description: "Invalid fileId format",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						401: {
+							description: "Unauthorized",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						404: {
+							description: "File not found",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+						500: {
+							description: "Internal server error",
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/Error",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	};
+}
+
+module.exports = { setupFileRoutes, getOpenAPISpec };

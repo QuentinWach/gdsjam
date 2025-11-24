@@ -1,7 +1,7 @@
 # Server-Side File Storage Implementation
 
 **Date:** 2025-11-24
-**Status:** Planning
+**Status:** Completed
 **Related:** DevLog-001-07 (P2P File Sync Debugging)
 
 ---
@@ -101,8 +101,10 @@ Add:
 # File storage configuration
 FILE_STORAGE_PATH=/var/gdsjam/files
 MAX_FILE_SIZE_MB=100
-FILE_RETENTION_HOURS=24
+FILE_RETENTION_HOURS=168
 ```
+
+**Note:** File retention set to 168 hours (7 days) for production use.
 
 ### Step 4: Implement File Upload/Download API
 
@@ -110,7 +112,7 @@ FILE_RETENTION_HOURS=24
 
 Create module with:
 - `setupFileRoutes(app)` - Configure Express routes
-- `POST /api/files/upload` - Handle file upload with multer
+- `POST /api/files` - Handle file upload with multer (RESTful endpoint)
   - Validate file size (max 100MB)
   - Validate GDSII/DXF magic bytes
   - Compute SHA-256 hash
@@ -175,9 +177,11 @@ node cleanup.js >> logs/cleanup.log 2>&1
 
 **Cron job:**
 ```bash
-# Run cleanup every hour
-0 * * * * /home/ubuntu/signaling-server/cleanup.sh
+# Run cleanup every Sunday at midnight
+0 0 * * 0 /home/ubuntu/gdsjam/server/cleanup.sh
 ```
+
+**Note:** Cleanup runs weekly (Sunday) instead of hourly due to 7-day retention period.
 
 ### Step 7: Update Nginx Configuration
 
@@ -206,6 +210,15 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+## OpenAPI Compliance
+
+The API follows OpenAPI 3.0 standards with:
+- RESTful endpoint naming (POST /api/files, not /api/files/upload)
+- Complete OpenAPI specification at `/api/openapi.json`
+- Interactive Swagger UI documentation at `/api/docs`
+- Standardized request/response schemas
+- Bearer token authentication
+
 ## Testing
 
 ### Local Testing
@@ -213,7 +226,7 @@ sudo systemctl reload nginx
 1. Start server: `cd server && pnpm start`
 2. Test upload:
 ```bash
-curl -X POST http://localhost:4444/api/files/upload \
+curl -X POST http://localhost:4444/api/files \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -F "file=@test.gds"
 ```
@@ -224,28 +237,62 @@ curl http://localhost:4444/api/files/<fileId> \
   -o downloaded.gds
 ```
 
+### API Documentation
+
+- Production docs: https://signaling.gdsjam.com/api/docs
+- OpenAPI spec: https://signaling.gdsjam.com/api/openapi.json
+
 ### Production Testing
 
 1. Deploy to OCI
-2. Test via HTTPS: `https://signaling.gdsjam.com/api/files/upload`
+2. Test via HTTPS: `https://signaling.gdsjam.com/api/files`
 3. Verify file storage in `/var/gdsjam/files`
-4. Verify cleanup cron job runs
+4. Verify cleanup cron job runs weekly
 
 ## Deployment Checklist
 
-- [ ] Update server/package.json dependencies
-- [ ] Create /var/gdsjam/files directory
-- [ ] Add environment variables to server/.env
-- [ ] Create server/fileStorage.js
-- [ ] Create server/cleanup.js and cleanup.sh
-- [ ] Update server/server.js
-- [ ] Update Nginx configuration
-- [ ] Install dependencies: `pnpm install`
-- [ ] Test locally
-- [ ] Deploy to OCI
-- [ ] Configure cron job
+- [x] Update server/package.json dependencies (express, multer, cors, dotenv)
+- [x] Create /var/gdsjam/files directory
+- [x] Add environment variables to server/.env (168h retention)
+- [x] Create server/fileStorage.js with OpenAPI spec
+- [x] Create server/cleanup.js and cleanup.sh
+- [x] Update server/server.js to integrate Express
+- [x] Update Nginx configuration for /api/ routes
+- [x] Install dependencies: `pnpm install`
+- [x] Configure cron job (weekly Sunday cleanup)
+- [x] Deploy to production
+- [x] Add OpenAPI documentation endpoints
 - [ ] Test production endpoints
 - [ ] Monitor logs and disk usage
+
+## Implementation Summary
+
+**Completed:** 2025-11-24
+
+**Key Changes:**
+- Added Express.js HTTP server alongside WebSocket server
+- Implemented RESTful file storage API with OpenAPI 3.0 compliance
+- File retention: 7 days (168 hours)
+- Cleanup schedule: Weekly (Sunday midnight)
+- API documentation: Swagger UI at /api/docs
+- Storage path: /var/gdsjam/files
+- Max file size: 100MB
+- Rate limiting: 10 uploads per IP per hour
+
+**Endpoints:**
+- POST /api/files - Upload file
+- GET /api/files/:fileId - Download file
+- DELETE /api/files/:fileId - Delete file
+- GET /api/docs - Interactive API documentation
+- GET /api/openapi.json - OpenAPI specification
+
+**Security:**
+- Bearer token authentication (shared with WebSocket server)
+- CORS whitelist
+- Rate limiting
+- File type validation (GDSII/DXF magic bytes)
+- Path traversal prevention
+- SHA-256 file deduplication
 
 ## Next Steps
 
