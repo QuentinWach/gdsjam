@@ -259,7 +259,7 @@ async function copySessionLink() {
 			Controls: Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | Touch: One finger to pan, two fingers to zoom
 		</p>
 		<p class="text-sm text-gray-400 footer-note">
-			This webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>.
+			When not using sessions, this webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>.
 		</p>
 	</div>
 </main>
