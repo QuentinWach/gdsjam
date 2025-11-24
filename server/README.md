@@ -128,15 +128,85 @@ See [DevLog-001-05-WebRTC-Signaling-Server-Setup-Guide.md](../DevLog/DevLog-001-
 - SSL/TLS with Nginx
 - Monitoring and troubleshooting
 
+## TURN Server
+
+The TURN server (coturn) runs on the same OCI instance and enables WebRTC connections through NAT/firewalls.
+
+### TURN Server Control
+
+```bash
+# Start the server
+sudo systemctl start coturn
+
+# Stop the server
+sudo systemctl stop coturn
+
+# Restart the server
+sudo systemctl restart coturn
+
+# Check status
+sudo systemctl status coturn
+
+# Enable auto-start on boot (already configured)
+sudo systemctl enable coturn
+
+# Disable auto-start on boot
+sudo systemctl disable coturn
+```
+
+### TURN Server Logs
+
+View logs using systemd journal:
+
+```bash
+# View recent logs
+sudo journalctl -u coturn
+
+# Follow logs in real-time
+sudo journalctl -u coturn -f
+
+# View logs from last 10 minutes
+sudo journalctl -u coturn --since "10 minutes ago"
+
+# View last 50 lines
+sudo journalctl -u coturn -n 50
+```
+
+### TURN Server Configuration
+
+Configuration file: `/etc/turnserver.conf`
+
+Key settings:
+- Listening ports: 3478 (UDP/TCP), 5349 (TLS)
+- Relay ports: 49152-65535 (UDP)
+- Domain: signaling.gdsjam.com
+- SSL certificate: /etc/letsencrypt/live/signaling.gdsjam.com/
+
+To modify configuration:
+```bash
+sudo nano /etc/turnserver.conf
+sudo systemctl restart coturn
+```
+
+For setup details, see [DevLog-001-06-TURN-Server-Setup.md](../DevLog/DevLog-001-06-TURN-Server-Setup.md)
+
 ## Resource Usage
 
+### Signaling Server
 - **CPU**: ~1-5% for 100 concurrent users
 - **RAM**: ~50-100MB
 - **Bandwidth**: ~1-10KB per connection (signaling only)
 - **Capacity**: 500-1000 concurrent users on a 1GB free-tier instance
 
+### TURN Server
+- **CPU**: Low (similar to signaling server)
+- **RAM**: ~100-200MB baseline
+- **Bandwidth**: Primary bottleneck (relays data when direct P2P fails)
+- **Estimated Usage**: ~30GB/month for 20% relay rate
+- **OCI Free Tier**: 10TB/month (sufficient for MVP)
+
 ## How it works
 
-The server broadcasts WebRTC signaling messages (SDP offers/answers, ICE candidates) to all connected peers. Each peer filters messages meant for them based on the WebRTC protocol.
+The signaling server broadcasts WebRTC signaling messages (SDP offers/answers, ICE candidates) to all connected peers. Each peer filters messages meant for them based on the WebRTC protocol.
 
-After peers establish a direct WebRTC connection, the signaling server is no longer needed for data transfer.
+After peers establish a direct WebRTC connection, the signaling server is no longer needed for data transfer. If direct connection fails due to NAT/firewall, the TURN server relays the data.
