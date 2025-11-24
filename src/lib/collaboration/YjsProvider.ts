@@ -29,6 +29,11 @@ export class YjsProvider {
 		this.ydoc = new Y.Doc();
 		this.awareness = new Awareness(this.ydoc);
 
+		// Enable y-webrtc logging in development
+		if (DEBUG && typeof localStorage !== "undefined") {
+			localStorage.setItem("log", "y-webrtc");
+		}
+
 		if (DEBUG) {
 			console.log("[YjsProvider] Initialized with user ID:", userId);
 		}
@@ -139,6 +144,52 @@ export class YjsProvider {
 			// @ts-expect-error - accessing internal property for debugging
 			const room = this.provider.room;
 			console.log("[YjsProvider] WebRTC room created, waiting for peer connections...");
+
+			// Access the WebRTC peer connections map
+			// @ts-expect-error - accessing internal property for debugging
+			if (room.webrtcConns) {
+				console.log("[YjsProvider] WebRTC connections map exists");
+
+				// Monitor when new peer connections are created
+				// @ts-expect-error - accessing internal property for debugging
+				const originalSet = room.webrtcConns.set.bind(room.webrtcConns);
+				// @ts-expect-error - accessing internal property for debugging
+				room.webrtcConns.set = (key: string, value: any) => {
+					console.log("[YjsProvider] New WebRTC peer connection created:", key);
+
+					// Monitor the peer connection state
+					if (value && value.peer) {
+						const pc = value.peer as RTCPeerConnection;
+						console.log("[YjsProvider] RTCPeerConnection initial state:", pc.connectionState);
+
+						pc.addEventListener("connectionstatechange", () => {
+							console.log(`[YjsProvider] Peer ${key} connection state:`, pc.connectionState);
+						});
+
+						pc.addEventListener("iceconnectionstatechange", () => {
+							console.log(`[YjsProvider] Peer ${key} ICE connection state:`, pc.iceConnectionState);
+						});
+
+						pc.addEventListener("icegatheringstatechange", () => {
+							console.log(`[YjsProvider] Peer ${key} ICE gathering state:`, pc.iceGatheringState);
+						});
+
+						pc.addEventListener("icecandidate", (event: RTCPeerConnectionIceEvent) => {
+							if (event.candidate) {
+								console.log(
+									`[YjsProvider] Peer ${key} ICE candidate:`,
+									event.candidate.type,
+									event.candidate.protocol,
+								);
+							} else {
+								console.log(`[YjsProvider] Peer ${key} ICE gathering complete`);
+							}
+						});
+					}
+
+					return originalSet(key, value);
+				};
+			}
 
 			// Listen to signaling messages
 			// @ts-expect-error

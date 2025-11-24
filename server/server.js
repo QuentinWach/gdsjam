@@ -101,8 +101,15 @@ wss.on("connection", (ws, req) => {
 	ws.on("message", (data) => {
 		try {
 			// Parse y-webrtc signaling message
-			// y-webrtc sends messages in format: { type: 'subscribe' | 'unsubscribe' | 'publish', topics: [roomName, ...], ... }
+			// subscribe/unsubscribe: { type: 'subscribe' | 'unsubscribe', topics: [roomName, ...] }
+			// publish: { type: 'publish', topic: roomName, ...data }
+			// ping: { type: 'ping' }
 			const message = JSON.parse(data);
+
+			// Log all message types for debugging
+			console.log(
+				`[${new Date().toISOString()}] Client ${clientId} sent message type: ${message.type}`,
+			);
 
 			// Handle room subscription (y-webrtc 'subscribe' message)
 			if (message.type === "subscribe" && Array.isArray(message.topics)) {
@@ -141,29 +148,31 @@ wss.on("connection", (ws, req) => {
 			}
 
 			// Handle message publishing (y-webrtc 'publish' message)
-			if (message.type === "publish" && Array.isArray(message.topics)) {
-				// Broadcast to all clients in the same rooms
-				const targetClients = new Set();
-				for (const topic of message.topics) {
-					if (rooms.has(topic)) {
-						for (const client of rooms.get(topic)) {
-							if (client !== ws && client.readyState === WebSocket.OPEN) {
-								targetClients.add(client);
-							}
+			// Note: publish uses 'topic' (singular), not 'topics' (plural)
+			if (message.type === "publish" && message.topic) {
+				const topic = message.topic;
+				if (rooms.has(topic)) {
+					const receivers = rooms.get(topic);
+					// Add client count to message (like official y-webrtc server)
+					message.clients = receivers.size;
+					const messageStr = JSON.stringify(message);
+
+					// Broadcast to all clients in the room (including sender)
+					for (const client of receivers) {
+						if (client.readyState === WebSocket.OPEN) {
+							client.send(messageStr);
 						}
 					}
-				}
 
-				// Send message to all target clients
-				for (const client of targetClients) {
-					client.send(data);
-				}
-
-				if (targetClients.size > 0) {
 					console.log(
-						`[${new Date().toISOString()}] Client ${clientId} published to ${targetClients.size} peers in rooms: ${message.topics.join(", ")}`,
+						`[${new Date().toISOString()}] Client ${clientId} published to ${receivers.size} clients in room: ${topic}`,
 					);
 				}
+			}
+
+			// Handle ping message
+			if (message.type === "ping") {
+				ws.send(JSON.stringify({ type: "pong" }));
 			}
 		} catch (error) {
 			// If message is not JSON or doesn't match y-webrtc format, log and ignore
