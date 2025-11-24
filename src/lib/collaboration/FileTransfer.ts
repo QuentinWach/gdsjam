@@ -47,16 +47,7 @@ export class FileTransfer {
 			console.log(`[FileTransfer] Uploading file: ${fileName} (${fileSizeMB} MB)`);
 		}
 
-		this.onProgress?.(0, "Computing file hash...");
-
-		// Compute SHA-256 hash asynchronously
-		const fileHash = await computeSHA256(arrayBuffer);
-
-		if (DEBUG) {
-			console.log(`[FileTransfer] File hash: ${fileHash}`);
-		}
-
-		this.onProgress?.(20, "Uploading file to server...");
+		this.onProgress?.(0, "Uploading file to server...");
 
 		// Upload file to server
 		const fileServerUrl = import.meta.env.VITE_FILE_SERVER_URL || "https://signaling.gdsjam.com";
@@ -64,9 +55,8 @@ export class FileTransfer {
 
 		const formData = new FormData();
 		formData.append("file", new Blob([arrayBuffer]));
-		formData.append("fileHash", fileHash);
 
-		const response = await fetch(`${fileServerUrl}/api/files/upload`, {
+		const response = await fetch(`${fileServerUrl}/api/files`, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${fileServerToken}`,
@@ -79,6 +69,9 @@ export class FileTransfer {
 		}
 
 		const { fileId } = await response.json();
+
+		// fileId is the SHA-256 hash computed by the server
+		const fileHash = fileId;
 
 		if (DEBUG) {
 			console.log(`[FileTransfer] File uploaded to server with ID: ${fileId}`);

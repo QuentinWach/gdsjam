@@ -5,7 +5,7 @@
 **Status**: In Progress
 
 ---
-**⚠️ CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
+**CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
 - `filterBcConns` MUST always be `true` in y-webrtc configuration
 - BroadcastChannel causes issues with file sync and session state
 - Always force WebRTC connections even for same-browser tabs
@@ -34,7 +34,7 @@ pnpm add -D @vitest/ui@4.0.10 jsdom
 ### 2. Test Coverage
 
 #### LODManager Tests (19 tests, 11 passing)
-✅ **Passing Tests**:
+[PASS] **Passing Tests**:
 - `getCurrentDepth()` - Returns initial depth of 0
 - `getScaledBudget()` - Returns base budget at depth 0
 - `updateZoomThresholds()` - Sets correct low/high thresholds
@@ -42,28 +42,28 @@ pnpm add -D @vitest/ui@4.0.10 jsdom
 - `checkAndTriggerRerender()` - Respects `isRerendering` flag
 - `checkAndTriggerRerender()` - Doesn't trigger without significant zoom change
 
-❌ **Failing Tests** (require zoom threshold crossing):
+[FAIL] **Failing Tests** (require zoom threshold crossing):
 - Tests that expect depth changes need to properly simulate zoom threshold crossings
 - Tests using `vi.advanceTimersByTime()` need `vi.useFakeTimers()` in correct scope
 
 #### ZoomLimits Tests (8 tests, 4 passing)
-✅ **Passing Tests**:
+[PASS] **Passing Tests**:
 - Viewport width scaling for max/min zoom
 - `clampZoomScale()` - Clamps above max zoom
 - `clampZoomScale()` - Doesn't clamp within limits
 - Handles different document units
 
-❌ **Failing Tests**:
+[FAIL] **Failing Tests**:
 - Exact zoom limit calculations (need to verify formula against actual implementation)
 
 #### ViewportManager Tests (13 tests, 4 passing)
-✅ **Passing Tests**:
+[PASS] **Passing Tests**:
 - `updateVisibility()` - Handles empty graphics items
 - `detectNewlyVisibleLayers()` - Detects newly visible layers
 - `detectNewlyVisibleLayers()` - Doesn't detect layers with existing graphics
 - `detectNewlyVisibleLayers()` - Ignores hidden layers
 
-❌ **Failing Tests**:
+[FAIL] **Failing Tests**:
 - `getViewportBounds()` calculations (minor floating point issues with -0 vs +0)
 - `updateVisibility()` tests (spatial index mock needs proper query() method)
 
@@ -91,8 +91,8 @@ pnpm test:ui       # Run tests with UI
 ## Next Steps
 
 ### High Priority
-1. ✅ Set up Vitest configuration
-2. ✅ Create test files for core modules
+1. [PASS] Set up Vitest configuration
+2. [PASS] Create test files for core modules
 3. ⏳ Fix failing tests (in progress)
 4. ⏳ Increase test coverage to 70%+
 
@@ -124,10 +124,10 @@ pnpm test:ui       # Run tests with UI
 
 ## Impact
 
-- **Testability**: ✅ Modules can now be tested in isolation
-- **Regression Prevention**: ✅ Tests will catch breaking changes
-- **Documentation**: ✅ Tests serve as usage examples
-- **Confidence**: ✅ Can refactor with confidence
+- **Testability**: [PASS] Modules can now be tested in isolation
+- **Regression Prevention**: [PASS] Tests will catch breaking changes
+- **Documentation**: [PASS] Tests serve as usage examples
+- **Confidence**: [PASS] Can refactor with confidence
 
 ## Notes
 

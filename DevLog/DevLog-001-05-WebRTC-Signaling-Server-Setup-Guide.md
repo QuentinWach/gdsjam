@@ -1,7 +1,7 @@
 # WebRTC Signaling Server Setup Guide
 
 ---
-**⚠️ CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
+**CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
 - `filterBcConns` MUST always be `true` in y-webrtc configuration
 - BroadcastChannel causes issues with file sync and session state
 - Always force WebRTC connections even for same-browser tabs
@@ -29,11 +29,11 @@ A signaling server helps WebRTC peers **discover each other** and **exchange con
 - **After peers connect**: Server load drops to near zero (just keepalive pings)
 
 ### Why OCI Free Tier is Perfect:
-✅ Always-free ARM instance (4 OCPUs, 24GB RAM) - massive overkill for signaling  
-✅ Always-free AMD instance (1 OCPU, 1GB RAM) - still plenty for signaling  
-✅ 10TB/month outbound bandwidth - more than enough  
-✅ Static public IP included  
-✅ Can run alongside other services without issues  
+[PASS] Always-free ARM instance (4 OCPUs, 24GB RAM) - massive overkill for signaling  
+[PASS] Always-free AMD instance (1 OCPU, 1GB RAM) - still plenty for signaling  
+[PASS] 10TB/month outbound bandwidth - more than enough  
+[PASS] Static public IP included  
+[PASS] Can run alongside other services without issues  
 
 **Verdict**: Yes, a free OCI instance can easily handle your signaling server + other services!
 
@@ -343,12 +343,12 @@ pm2 logs gdsjam-signaling --lines 50 | grep "Active connections"
 
 ## Summary
 
-✅ **Setup time**: 15-20 minutes
-✅ **Cost**: $0 (using OCI free tier)
-✅ **Capacity**: 500-1000 concurrent users
-✅ **Resource usage**: <100MB RAM, <5% CPU
-✅ **Can run alongside other services**: Yes!
-✅ **Maintenance**: Minimal (PM2 auto-restart)
+[PASS] **Setup time**: 15-20 minutes
+[PASS] **Cost**: $0 (using OCI free tier)
+[PASS] **Capacity**: 500-1000 concurrent users
+[PASS] **Resource usage**: <100MB RAM, <5% CPU
+[PASS] **Can run alongside other services**: Yes!
+[PASS] **Maintenance**: Minimal (PM2 auto-restart)
 
 Your free OCI instance is **more than capable** of running this signaling server alongside your other services!
 
@@ -356,7 +356,7 @@ Your free OCI instance is **more than capable** of running this signaling server
 
 ## Implementation Status
 
-### ✅ Completed (2025-11-23)
+### [PASS] Completed (2025-11-23)
 
 The signaling server has been implemented in `/server` with the following features:
 
@@ -409,7 +409,7 @@ server/
 
 ### Security Considerations
 
-⚠️ **Important**: The current security model provides **basic protection**, not enterprise-grade security.
+**Important**: The current security model provides **basic protection**, not enterprise-grade security.
 
 **What it protects against:**
 - Casual discovery and abuse

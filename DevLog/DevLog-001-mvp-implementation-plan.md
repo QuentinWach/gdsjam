@@ -1,7 +1,7 @@
 # DevLog-001: MVP Implementation Plan
 
 ---
-**⚠️ CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
+**CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
 - `filterBcConns` MUST always be `true` in y-webrtc configuration
 - BroadcastChannel causes issues with file sync and session state
 - Always force WebRTC connections even for same-browser tabs
@@ -963,13 +963,13 @@ renderCellGeometry(..., maxDepth: number, polygonBudget: number): number {
 ```
 
 **Results:**
-- ✅ 150MB file (1.8M polygons) loads successfully without crash
-- ✅ Renders ~100K polygons in ~500ms
-- ✅ Browser memory usage stays under 1GB
+- [PASS] 150MB file (1.8M polygons) loads successfully without crash
+- [PASS] Renders ~100K polygons in ~500ms
+- [PASS] Browser memory usage stays under 1GB
 
 **Known Issues:**
-- ⚠️ **LOD not updated on zoom:** Currently renders at depth=0 once, never increases depth when zooming in
-- ⚠️ **Missing detail:** Users can't see instance hierarchy until dynamic LOD is implemented
+- **LOD not updated on zoom:** Currently renders at depth=0 once, never increases depth when zooming in
+- **Missing detail:** Users can't see instance hierarchy until dynamic LOD is implemented
 
 **Next Steps:**
 1. Implement zoom-based LOD updates:
@@ -1263,9 +1263,9 @@ private updateGrid(): void {
 ### Code Quality
 
 **All changes pass:**
-- ✅ Biome linting (no errors)
-- ✅ TypeScript type checking (strict mode)
-- ✅ Svelte component validation
+- [PASS] Biome linting (no errors)
+- [PASS] TypeScript type checking (strict mode)
+- [PASS] Svelte component validation
 
 **Debug Logging:**
 - Added comprehensive console logging for progress tracking

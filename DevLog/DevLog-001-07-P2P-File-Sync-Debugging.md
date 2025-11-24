@@ -5,7 +5,7 @@
 **Related:** DevLog-001-04, DevLog-001-05, DevLog-001-06
 
 ---
-**⚠️ CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
+**CRITICAL CONSTRAINT: NEVER ENABLE BROADCASTCHANNEL**
 - `filterBcConns` MUST always be `true` in y-webrtc configuration
 - BroadcastChannel causes issues with file sync and session state
 - Always force WebRTC connections even for same-browser tabs

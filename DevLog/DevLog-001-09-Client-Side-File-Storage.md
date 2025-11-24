@@ -266,6 +266,9 @@ async function downloadWithRetry(url: string, maxRetries = 3): Promise<ArrayBuff
 - [x] Update App.svelte (new download logic)
 - [x] Add download progress UI (via collaborationStore.updateFileTransferProgress)
 - [x] Add error handling and retry logic (downloadWithRetry with exponential backoff)
+- [x] Fix endpoint URL (POST /api/files, not /api/files/upload)
+- [x] Optimize upload flow (remove client-side hash computation before upload)
+- [x] Test server endpoints (upload, download, integrity verification)
 - [ ] Test locally with dev server (USER will test)
 - [ ] Update GitHub Secrets (VITE_FILE_SERVER_TOKEN)
 - [ ] Deploy to GitHub Pages
@@ -288,11 +291,77 @@ async function downloadWithRetry(url: string, maxRetries = 3): Promise<ArrayBuff
 - No more RTCDataChannel buffer issues
 - **BroadcastChannel is DISABLED** - WebRTC is used even for same-browser tabs (filterBcConns: true)
 
+## Client-Side Code Changes
+
+### Change 1: Fix Endpoint URL
+
+**File:** `src/lib/collaboration/FileTransfer.ts`
+
+Changed from `/api/files/upload` to `/api/files` (RESTful endpoint):
+
+```typescript
+// Before
+const response = await fetch(`${fileServerUrl}/api/files/upload`, {
+
+// After
+const response = await fetch(`${fileServerUrl}/api/files`, {
+```
+
+### Change 2: Optimize Upload Flow
+
+**File:** `src/lib/collaboration/FileTransfer.ts`
+
+Removed client-side hash computation before upload. Server now computes SHA-256 hash and returns it as `fileId`:
+
+```typescript
+// Before
+this.onProgress?.(0, "Computing file hash...");
+const fileHash = await computeSHA256(arrayBuffer);
+formData.append("fileHash", fileHash);
+
+// After
+this.onProgress?.(0, "Uploading file to server...");
+// No client-side hash computation
+// Server computes hash and returns as fileId
+const { fileId } = await response.json();
+const fileHash = fileId; // Use server-computed hash
+```
+
+**Benefits:**
+- Faster upload initiation (no pre-upload hash delay)
+- Single source of truth for hash (server-side)
+- Simpler client code
+
+### Change 3: Update .env
+
+**File:** `.env`
+
+Added file server configuration:
+```bash
+VITE_FILE_SERVER_URL=https://signaling.gdsjam.com
+VITE_FILE_SERVER_TOKEN=927e3890630dd9786c995bfde756a27468b6c4c6ae25a4011e364c158207cb9c
+```
+
+## Server Endpoint Testing
+
+**Date:** 2025-11-24
+**Status:** ALL TESTS PASSED
+
+### Test Results Summary
+
+[PASS] **Upload Test:** `POST /api/files` - Working
+[PASS] **Download Test:** `GET /api/files/:fileId` - Working
+[PASS] **Integrity Test:** SHA-256 hashes match perfectly
+[PASS] **API Docs:** https://signaling.gdsjam.com/api/docs - Available
+
+See DevLog-001-08 for detailed server test results.
+
 ## Next Steps
 
-1. Implement server-side changes (DevLog-001-08)
-2. Implement client-side changes (this document)
-3. Test end-to-end file upload/download
-4. Monitor server bandwidth and storage usage
-5. Consider future optimizations (IndexedDB caching, CDN)
+1. [DONE] Implement server-side changes (DevLog-001-08)
+2. [DONE] Implement client-side changes (this document)
+3. [DONE] Test server endpoints
+4. [TODO] Test end-to-end file upload/download in application (USER)
+5. Monitor server bandwidth and storage usage
+6. Consider future optimizations (IndexedDB caching, CDN)
 
