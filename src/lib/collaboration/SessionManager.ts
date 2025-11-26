@@ -15,6 +15,7 @@ import type { CollaborationEvent, SessionMetadata, UserInfo } from "./types";
 import { YjsProvider } from "./YjsProvider";
 
 const USER_ID_KEY = "gdsjam-user-id";
+const SESSION_STORAGE_PREFIX = "gdsjam-session-";
 const USER_COLOR_PALETTE = [
 	"#FF6B6B", // Red
 	"#4ECDC4", // Teal
@@ -26,6 +27,24 @@ const USER_COLOR_PALETTE = [
 	"#85C1E2", // Sky Blue
 ];
 
+// Stored session info for recovery after refresh
+interface StoredSessionInfo {
+	fileId: string;
+	fileName: string;
+	fileHash: string;
+	fileSize: number;
+	savedAt: number;
+}
+
+// Pending file info for "upload first, then create session" workflow
+interface PendingFile {
+	fileId: string;
+	fileName: string;
+	fileHash: string;
+	fileSize: number;
+	arrayBuffer: ArrayBuffer;
+}
+
 export class SessionManager {
 	private yjsProvider: YjsProvider;
 	private userId: string;
@@ -33,6 +52,7 @@ export class SessionManager {
 	private isHost: boolean = false;
 	private fileTransfer: FileTransfer | null = null;
 	private uploadedFileBuffer: ArrayBuffer | null = null; // Store file for sharing with peers
+	private pendingFile: PendingFile | null = null; // File uploaded before session creation
 
 	constructor() {
 		// Get or create user ID
@@ -82,13 +102,127 @@ export class SessionManager {
 			sessionMap.set("sessionId", sessionId);
 			sessionMap.set("createdAt", Date.now());
 			sessionMap.set("uploadedBy", this.userId);
+
+			// If there's a pending file (uploaded before session creation), add its metadata
+			if (this.pendingFile) {
+				sessionMap.set("fileId", this.pendingFile.fileId);
+				sessionMap.set("fileName", this.pendingFile.fileName);
+				sessionMap.set("fileSize", this.pendingFile.fileSize);
+				sessionMap.set("fileHash", this.pendingFile.fileHash);
+				sessionMap.set("uploadedAt", Date.now());
+
+				if (DEBUG) {
+					console.log("[SessionManager] Added pending file to session:", this.pendingFile.fileName);
+				}
+			}
 		});
+
+		// Store the pending file buffer for potential re-sharing, save to localStorage, then clear pending state
+		if (this.pendingFile) {
+			// Save session to localStorage for recovery after refresh
+			this.saveSessionToLocalStorage(
+				this.pendingFile.fileId,
+				this.pendingFile.fileName,
+				this.pendingFile.fileHash,
+				this.pendingFile.fileSize,
+			);
+
+			this.uploadedFileBuffer = this.pendingFile.arrayBuffer;
+			this.pendingFile = null;
+		}
 
 		if (DEBUG) {
 			console.log("[SessionManager] Created session:", sessionId);
 		}
 
 		return sessionId;
+	}
+
+	/**
+	 * Upload a file before creating a session (pending upload)
+	 * The file will be associated with the session when createSession() is called
+	 */
+	async uploadFilePending(
+		arrayBuffer: ArrayBuffer,
+		fileName: string,
+		onProgress?: (progress: number, message: string) => void,
+	): Promise<void> {
+		if (DEBUG) {
+			console.log(
+				"[SessionManager] Uploading file as pending (before session creation):",
+				fileName,
+			);
+		}
+
+		onProgress?.(0, "Uploading file to server...");
+
+		// Upload file to server
+		const fileServerUrl = import.meta.env.VITE_FILE_SERVER_URL || "https://signaling.gdsjam.com";
+		const fileServerToken = import.meta.env.VITE_FILE_SERVER_TOKEN;
+
+		const formData = new FormData();
+		formData.append("file", new Blob([arrayBuffer]));
+
+		const response = await fetch(`${fileServerUrl}/api/files`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${fileServerToken}`,
+			},
+			body: formData,
+		});
+
+		if (!response.ok) {
+			throw new Error(`File upload failed: ${response.status} ${response.statusText}`);
+		}
+
+		const { fileId } = await response.json();
+
+		// fileId is the SHA-256 hash computed by the server
+		const fileHash = fileId;
+
+		onProgress?.(100, "File uploaded, ready to create session");
+
+		// Store as pending file
+		this.pendingFile = {
+			fileId,
+			fileName,
+			fileHash,
+			fileSize: arrayBuffer.byteLength,
+			arrayBuffer,
+		};
+
+		if (DEBUG) {
+			console.log("[SessionManager] Pending file stored:", {
+				fileId,
+				fileName,
+				fileSize: arrayBuffer.byteLength,
+			});
+		}
+	}
+
+	/**
+	 * Check if there's a pending file ready for session creation
+	 */
+	hasPendingFile(): boolean {
+		return this.pendingFile !== null;
+	}
+
+	/**
+	 * Get pending file info (without the buffer)
+	 */
+	getPendingFileInfo(): { fileName: string; fileSize: number } | null {
+		if (!this.pendingFile) return null;
+		return {
+			fileName: this.pendingFile.fileName,
+			fileSize: this.pendingFile.fileSize,
+		};
+	}
+
+	/**
+	 * Clear pending file (e.g., if user cancels)
+	 */
+	clearPendingFile(): void {
+		this.pendingFile = null;
 	}
 
 	/**
@@ -285,6 +419,29 @@ export class SessionManager {
 	}
 
 	/**
+	 * Download file by ID directly (for session recovery)
+	 */
+	async downloadFileById(
+		fileId: string,
+		fileName: string,
+		fileHash: string,
+		onProgress?: (progress: number, message: string) => void,
+		onEvent?: (event: CollaborationEvent) => void,
+	): Promise<{ arrayBuffer: ArrayBuffer; fileName: string; fileHash: string }> {
+		// Create file transfer instance
+		this.fileTransfer = new FileTransfer(this.yjsProvider.getDoc(), onProgress, onEvent);
+
+		// Download file by ID
+		const result = await this.fileTransfer.downloadFileById(fileId, fileName, fileHash);
+
+		if (DEBUG) {
+			console.log("[SessionManager] File recovered from server:", result.fileName);
+		}
+
+		return result;
+	}
+
+	/**
 	 * Check if a file is available in the session
 	 */
 	isFileAvailable(): boolean {
@@ -297,7 +454,7 @@ export class SessionManager {
 	/**
 	 * Get file metadata from session
 	 */
-	getFileMetadata(): Partial<SessionMetadata> | null {
+	getFileMetadata(): (Partial<SessionMetadata> & { fileId?: string }) | null {
 		if (!this.fileTransfer) {
 			this.fileTransfer = new FileTransfer(this.yjsProvider.getDoc());
 		}
@@ -312,6 +469,98 @@ export class SessionManager {
 			return null;
 		}
 		return this.fileTransfer.getProgress();
+	}
+
+	/**
+	 * Save session info to localStorage for recovery after refresh
+	 */
+	saveSessionToLocalStorage(
+		fileId: string,
+		fileName: string,
+		fileHash: string,
+		fileSize: number,
+	): void {
+		if (!this.sessionId) {
+			if (DEBUG) {
+				console.log("[SessionManager] Cannot save to localStorage - no session ID");
+			}
+			return;
+		}
+
+		const key = `${SESSION_STORAGE_PREFIX}${this.sessionId}`;
+		const info: StoredSessionInfo = {
+			fileId,
+			fileName,
+			fileHash,
+			fileSize,
+			savedAt: Date.now(),
+		};
+
+		try {
+			localStorage.setItem(key, JSON.stringify(info));
+			if (DEBUG) {
+				console.log("[SessionManager] Saved session info to localStorage:", key);
+			}
+		} catch (error) {
+			console.error("[SessionManager] Failed to save session to localStorage:", error);
+		}
+	}
+
+	/**
+	 * Load session info from localStorage
+	 */
+	loadSessionFromLocalStorage(): StoredSessionInfo | null {
+		if (!this.sessionId) {
+			return null;
+		}
+
+		const key = `${SESSION_STORAGE_PREFIX}${this.sessionId}`;
+
+		try {
+			const stored = localStorage.getItem(key);
+			if (!stored) {
+				return null;
+			}
+
+			const info = JSON.parse(stored) as StoredSessionInfo;
+
+			// Check if session info is too old (24 hours)
+			const maxAge = 24 * 60 * 60 * 1000;
+			if (Date.now() - info.savedAt > maxAge) {
+				if (DEBUG) {
+					console.log("[SessionManager] Stored session info expired, removing");
+				}
+				localStorage.removeItem(key);
+				return null;
+			}
+
+			if (DEBUG) {
+				console.log("[SessionManager] Loaded session info from localStorage:", info);
+			}
+			return info;
+		} catch (error) {
+			console.error("[SessionManager] Failed to load session from localStorage:", error);
+			return null;
+		}
+	}
+
+	/**
+	 * Clear session info from localStorage
+	 */
+	clearSessionFromLocalStorage(): void {
+		if (!this.sessionId) {
+			return;
+		}
+
+		const key = `${SESSION_STORAGE_PREFIX}${this.sessionId}`;
+		try {
+			localStorage.removeItem(key);
+			if (DEBUG) {
+				console.log("[SessionManager] Cleared session info from localStorage:", key);
+			}
+		} catch (error) {
+			console.error("[SessionManager] Failed to clear session from localStorage:", error);
+		}
 	}
 
 	/**
