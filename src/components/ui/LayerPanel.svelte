@@ -219,6 +219,8 @@ function getLayerColor(layer: number, datatype: number): string {
 
 	.layer-list {
 		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		overscroll-behavior: contain;
 		padding: 8px;
 		flex: 1;
 	}
