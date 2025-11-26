@@ -51,8 +51,26 @@ async function handleFile(file: File) {
 					`File loaded locally but failed to upload to session: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
+		} else if (!$collaborationStore.isInSession) {
+			// Not in a session - upload as pending so it can be shared when session is created
+			if (DEBUG) {
+				console.log("[FileUpload] Uploading file as pending (for future session)...");
+			}
+
+			try {
+				await collaborationStore.uploadFilePending(arrayBuffer, file.name);
+				if (DEBUG) {
+					console.log("[FileUpload] File uploaded as pending successfully");
+				}
+			} catch (error) {
+				console.error("[FileUpload] Failed to upload pending file:", error);
+				// Don't show error - file is loaded locally, just won't be shareable
+				if (DEBUG) {
+					console.log("[FileUpload] File loaded locally but not uploaded for sharing");
+				}
+			}
 		} else if (DEBUG) {
-			console.log("[FileUpload] Not uploading to session (not in session or not host)");
+			console.log("[FileUpload] Client in session - file loaded locally only");
 		}
 	} catch (error) {
 		console.error("[FileUpload] Failed to read file:", error);
@@ -114,38 +132,53 @@ function triggerFileInput() {
 }
 </script>
 
-<div
-	class="file-upload"
-	class:dragging={isDragging}
-	on:dragover={handleDragOver}
-	on:dragleave={handleDragLeave}
-	on:drop={handleDrop}
-	role="button"
-	tabindex="0"
-	on:click={triggerFileInput}
-	on:keydown={(e) => e.key === 'Enter' && triggerFileInput()}
->
-	<input
-		type="file"
-		accept=".gds,.gdsii,.dxf"
-		bind:this={fileInputElement}
-		on:change={handleFileInput}
-		style="display: none;"
-	/>
-
-	<div class="upload-content">
-		<svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-			<path
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				stroke-width="2"
-				d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-			/>
-		</svg>
-		<p class="upload-text">Drop GDSII or DXF file here or click to browse</p>
-		<p class="upload-hint">Supports .gds, .gdsii, and .dxf files</p>
+{#if $collaborationStore.isInSession && !$collaborationStore.isHost}
+	<!-- Client in session - show waiting message -->
+	<div class="file-upload waiting">
+		<div class="upload-content">
+			<svg class="upload-icon waiting-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+				<circle cx="12" cy="12" r="10" stroke-width="2" />
+				<path stroke-linecap="round" stroke-width="2" d="M12 6v6l4 2" />
+			</svg>
+			<p class="upload-text">Waiting for host to share a file...</p>
+			<p class="upload-hint">You'll automatically receive the file when it's ready</p>
+		</div>
 	</div>
-</div>
+{:else}
+	<!-- Normal file upload UI -->
+	<div
+		class="file-upload"
+		class:dragging={isDragging}
+		on:dragover={handleDragOver}
+		on:dragleave={handleDragLeave}
+		on:drop={handleDrop}
+		role="button"
+		tabindex="0"
+		on:click={triggerFileInput}
+		on:keydown={(e) => e.key === 'Enter' && triggerFileInput()}
+	>
+		<input
+			type="file"
+			accept=".gds,.gdsii,.dxf"
+			bind:this={fileInputElement}
+			on:change={handleFileInput}
+			style="display: none;"
+		/>
+
+		<div class="upload-content">
+			<svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+				<path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+					d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+				/>
+			</svg>
+			<p class="upload-text">Drop GDSII or DXF file here or click to browse</p>
+			<p class="upload-hint">Supports .gds, .gdsii, and .dxf files</p>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.file-upload {
@@ -168,6 +201,17 @@ function triggerFileInput() {
 		background-color: #1a2a3a;
 	}
 
+	.file-upload.waiting {
+		cursor: default;
+		border-color: #4a9eff;
+		border-style: solid;
+	}
+
+	.file-upload.waiting:hover {
+		border-color: #4a9eff;
+		background-color: #1a1a1a;
+	}
+
 	.upload-content {
 		display: flex;
 		flex-direction: column;
@@ -179,6 +223,20 @@ function triggerFileInput() {
 		width: 48px;
 		height: 48px;
 		color: #888;
+	}
+
+	.waiting-icon {
+		color: #4a9eff;
+		animation: pulse 2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.5;
+		}
 	}
 
 	.upload-text {

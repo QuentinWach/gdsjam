@@ -54,6 +54,24 @@ async function handleGlobalFileInput(event: Event) {
 					`File loaded locally but failed to upload to session: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
+		} else if (!$collaborationStore.isInSession) {
+			// Not in a session - upload as pending so it can be shared when session is created
+			if (DEBUG) {
+				console.log("[App] Uploading file as pending (for future session)...");
+			}
+
+			try {
+				await collaborationStore.uploadFilePending(arrayBuffer, file.name);
+				if (DEBUG) {
+					console.log("[App] File uploaded as pending successfully");
+				}
+			} catch (error) {
+				console.error("[App] Failed to upload pending file:", error);
+				// Don't show error - file is loaded locally, just won't be shareable
+				if (DEBUG) {
+					console.log("[App] File loaded locally but not uploaded for sharing");
+				}
+			}
 		}
 	} catch (error) {
 		console.error("[App] Failed to read file:", error);
@@ -73,6 +91,15 @@ function handleKeyDown(event: KeyboardEvent) {
 	// Check for Ctrl+O (Windows/Linux) or Cmd+O (Mac)
 	if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
 		event.preventDefault(); // Prevent browser's default "Open File" dialog
+
+		// Block file upload for clients in a session (only host can upload)
+		if ($collaborationStore.isInSession && !$collaborationStore.isHost) {
+			if (DEBUG) {
+				console.log("[App] Blocking Ctrl+O for non-host client in session");
+			}
+			return;
+		}
+
 		globalFileInput?.click();
 	}
 }
@@ -99,7 +126,7 @@ onMount(async () => {
 			console.error("[App] Session manager not available");
 			gdsStore.setError("Failed to initialize collaboration session");
 		} else {
-			// Check if file is already available
+			// Check if file is already available in Y.js
 			if (collaborationStore.isFileAvailable()) {
 				if (DEBUG) {
 					console.log("[App] File already available in session, downloading...");
@@ -119,9 +146,36 @@ onMount(async () => {
 					);
 				}
 			} else {
+				// Check if we have stored session info in localStorage (for recovery after refresh)
+				const storedSession = collaborationStore.getStoredSessionInfo();
+				if (storedSession) {
+					if (DEBUG) {
+						console.log("[App] Found stored session info, attempting recovery...");
+					}
+
+					try {
+						const { arrayBuffer, fileName } = await collaborationStore.downloadFileById(
+							storedSession.fileId,
+							storedSession.fileName,
+							storedSession.fileHash,
+						);
+						await loadGDSIIFromBuffer(arrayBuffer, fileName);
+
+						if (DEBUG) {
+							console.log("[App] File recovered from localStorage successfully");
+						}
+						// Skip the waiting logic since we recovered the file
+						return;
+					} catch (error) {
+						console.error("[App] Failed to recover file from localStorage:", error);
+						// Continue to waiting logic - maybe peers will sync the file
+					}
+				}
 				// Wait for metadata to appear by observing the session map
 				const sessionMap = sessionManager.getProvider().getMap("session");
+				const awareness = sessionManager.getProvider().getAwareness();
 				let hasDownloaded = false;
+				let hasShownSessionEndedNotice = false;
 
 				const observer = () => {
 					if (hasDownloaded) return;
@@ -158,17 +212,49 @@ onMount(async () => {
 					console.log("[App] Waiting for file metadata to appear in session...");
 				}
 
-				// Set a timeout in case file never arrives
-				setTimeout(() => {
-					if (!hasDownloaded && !sessionMap.has("fileId")) {
-						if (DEBUG) {
-							console.log("[App] No file available in session after waiting");
-						}
-						gdsStore.setError(
-							"No file available in session. The host needs to upload a file first.",
-						);
+				// Check session status based on peer count instead of aggressive timeout
+				const checkSessionStatus = () => {
+					if (hasDownloaded || sessionMap.has("fileId")) {
+						return; // File available, no need to check
 					}
-				}, 10000); // 10 second timeout
+
+					// Count peers (excluding self)
+					const peerCount = awareness.getStates().size - 1;
+
+					if (DEBUG) {
+						console.log("[App] Session status check - peer count:", peerCount);
+					}
+
+					if (peerCount === 0 && !hasShownSessionEndedNotice) {
+						// No peers connected - session may have ended
+						hasShownSessionEndedNotice = true;
+						if (DEBUG) {
+							console.log("[App] No peers in session - may have ended");
+						}
+						// Don't show error, just info - the FileUpload component shows waiting UI
+						// Only show notice after giving time for WebRTC to connect
+					}
+				};
+
+				// Check after giving WebRTC time to establish connections
+				setTimeout(checkSessionStatus, 5000);
+				// Check again later in case connections were slow
+				setTimeout(checkSessionStatus, 15000);
+
+				// Listen for awareness changes to update peer count
+				awareness.on("change", () => {
+					if (hasDownloaded) return;
+
+					const peerCount = awareness.getStates().size - 1;
+					if (DEBUG) {
+						console.log("[App] Awareness changed - peer count:", peerCount);
+					}
+
+					// If peers appeared after we showed "session ended", clear any notices
+					if (peerCount > 0) {
+						hasShownSessionEndedNotice = false;
+					}
+				});
 			}
 		}
 	}
@@ -237,7 +323,7 @@ onMount(async () => {
 			Controls: Ctrl/Cmd+O to open file | Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | Touch: One finger to pan, two fingers to zoom
 		</p>
 		<p class="text-sm text-gray-400 footer-note">
-			When not using sessions, this webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>.
+			When not using sessions, this webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>. Read or Contribute to source code on <a href="https://github.com/jwt625/gdsjam" target="_blank" rel="noopener noreferrer" class="creator-link">GitHub</a>.
 		</p>
 	</div>
 </main>

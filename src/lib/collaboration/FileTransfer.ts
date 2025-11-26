@@ -165,6 +165,57 @@ export class FileTransfer {
 	}
 
 	/**
+	 * Download file by ID directly (for session recovery)
+	 * Used when recovering from localStorage after page refresh
+	 */
+	async downloadFileById(
+		fileId: string,
+		fileName: string,
+		expectedHash: string,
+	): Promise<{ arrayBuffer: ArrayBuffer; fileName: string; fileHash: string }> {
+		if (DEBUG) {
+			console.log("[FileTransfer] Starting file recovery download for:", fileId);
+		}
+
+		this.onProgress?.(0, "Recovering file from server...");
+
+		const fileServerUrl = import.meta.env.VITE_FILE_SERVER_URL || "https://signaling.gdsjam.com";
+		const fileServerToken = import.meta.env.VITE_FILE_SERVER_TOKEN;
+
+		const arrayBuffer = await this.downloadWithRetry(
+			`${fileServerUrl}/api/files/${fileId}`,
+			fileServerToken,
+			3,
+		);
+
+		this.onProgress?.(80, "Validating file hash...");
+
+		// Validate hash
+		const actualHash = await computeSHA256(arrayBuffer);
+
+		if (actualHash !== expectedHash) {
+			throw new Error(
+				`File hash mismatch! Expected ${expectedHash.substring(0, 16)}..., got ${actualHash.substring(0, 16)}...`,
+			);
+		}
+
+		if (DEBUG) {
+			console.log("[FileTransfer] File recovery completed successfully");
+		}
+
+		this.onProgress?.(100, "File recovered successfully");
+		this.onEvent?.({
+			type: "file-transfer-complete",
+		});
+
+		return {
+			arrayBuffer,
+			fileName,
+			fileHash: actualHash,
+		};
+	}
+
+	/**
 	 * Download file from server with retry logic
 	 */
 	private async downloadWithRetry(
@@ -233,7 +284,7 @@ export class FileTransfer {
 	/**
 	 * Get file metadata from session
 	 */
-	getFileMetadata(): Partial<SessionMetadata> | null {
+	getFileMetadata(): (Partial<SessionMetadata> & { fileId?: string }) | null {
 		const sessionMap = this.ydoc.getMap<any>("session");
 
 		if (!this.isFileAvailable()) {
@@ -241,6 +292,7 @@ export class FileTransfer {
 		}
 
 		return {
+			fileId: sessionMap.get("fileId"),
 			fileName: sessionMap.get("fileName"),
 			fileSize: sessionMap.get("fileSize"),
 			fileHash: sessionMap.get("fileHash"),

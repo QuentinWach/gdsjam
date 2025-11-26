@@ -86,6 +86,9 @@ $effect(() => {
 		<div class="session-controls">
 			{#if $collaborationStore.isInSession}
 				<div class="session-info">
+					<span class="role-badge" class:host={$collaborationStore.isHost}>
+						{$collaborationStore.isHost ? 'Host' : 'Viewer'}
+					</span>
 					<span class="session-label">Session Active</span>
 					<span class="session-id">{$collaborationStore.sessionId?.substring(0, 8)}...</span>
 					<span class="user-count">{$collaborationStore.connectedUsers.length} user{$collaborationStore.connectedUsers.length !== 1 ? 's' : ''}</span>
@@ -206,6 +209,22 @@ $effect(() => {
 		font-size: 0.875rem;
 		color: #4ecdc4;
 		font-weight: 500;
+	}
+
+	.role-badge {
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		background-color: #333;
+		color: #888;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.role-badge.host {
+		background-color: #4a9eff;
+		color: #fff;
 	}
 
 	.btn {

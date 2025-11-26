@@ -227,6 +227,23 @@ function createCollaborationStore() {
 					},
 				);
 
+				// Save to localStorage for session recovery
+				const metadata = manager.getFileMetadata();
+				if (
+					metadata &&
+					metadata.fileId &&
+					metadata.fileName &&
+					metadata.fileHash &&
+					metadata.fileSize
+				) {
+					manager.saveSessionToLocalStorage(
+						metadata.fileId,
+						metadata.fileName,
+						metadata.fileHash,
+						metadata.fileSize,
+					);
+				}
+
 				update((state) => ({
 					...state,
 					isTransferring: false,
@@ -291,6 +308,23 @@ function createCollaborationStore() {
 					},
 				);
 
+				// Save to localStorage for session recovery
+				const metadata = manager.getFileMetadata();
+				if (
+					metadata &&
+					metadata.fileId &&
+					metadata.fileName &&
+					metadata.fileHash &&
+					metadata.fileSize
+				) {
+					manager.saveSessionToLocalStorage(
+						metadata.fileId,
+						metadata.fileName,
+						metadata.fileHash,
+						metadata.fileSize,
+					);
+				}
+
 				update((state) => ({
 					...state,
 					isTransferring: false,
@@ -323,6 +357,186 @@ function createCollaborationStore() {
 				return state;
 			});
 			return available;
+		},
+
+		/**
+		 * Download file by ID directly (for session recovery)
+		 */
+		downloadFileById: async (
+			fileId: string,
+			fileName: string,
+			fileHash: string,
+		): Promise<{
+			arrayBuffer: ArrayBuffer;
+			fileName: string;
+			fileHash: string;
+		}> => {
+			const getManager = (): SessionManager => {
+				let mgr: SessionManager | null = null;
+				update((state) => {
+					mgr = state.sessionManager;
+					return state;
+				});
+				if (!mgr) {
+					throw new Error("Session manager not initialized");
+				}
+				return mgr;
+			};
+
+			const manager = getManager();
+
+			update((state) => ({
+				...state,
+				isTransferring: true,
+				fileTransferProgress: 0,
+				fileTransferMessage: "Recovering file...",
+			}));
+
+			try {
+				const result = await manager.downloadFileById(
+					fileId,
+					fileName,
+					fileHash,
+					(progress: number, message: string) => {
+						update((state) => ({
+							...state,
+							fileTransferProgress: progress,
+							fileTransferMessage: message,
+						}));
+					},
+					(event: CollaborationEvent) => {
+						if (DEBUG) {
+							console.log("[collaborationStore] File recovery event:", event);
+						}
+					},
+				);
+
+				update((state) => ({
+					...state,
+					isTransferring: false,
+					fileTransferProgress: 100,
+					fileTransferMessage: "File recovered",
+				}));
+
+				return result;
+			} catch (error) {
+				console.error("[collaborationStore] File recovery failed:", error);
+				update((state) => ({
+					...state,
+					isTransferring: false,
+					fileTransferProgress: 0,
+					fileTransferMessage: "",
+				}));
+				throw error;
+			}
+		},
+
+		/**
+		 * Upload file as pending (before session creation)
+		 */
+		uploadFilePending: async (arrayBuffer: ArrayBuffer, fileName: string) => {
+			const getManager = (): SessionManager => {
+				let mgr: SessionManager | null = null;
+				update((state) => {
+					mgr = state.sessionManager;
+					return state;
+				});
+				if (!mgr) {
+					throw new Error("Session manager not initialized");
+				}
+				return mgr;
+			};
+
+			const manager = getManager();
+
+			update((state) => ({
+				...state,
+				isTransferring: true,
+				fileTransferProgress: 0,
+				fileTransferMessage: "Uploading file...",
+			}));
+
+			try {
+				await manager.uploadFilePending(
+					arrayBuffer,
+					fileName,
+					(progress: number, message: string) => {
+						update((state) => ({
+							...state,
+							fileTransferProgress: progress,
+							fileTransferMessage: message,
+						}));
+					},
+				);
+
+				update((state) => ({
+					...state,
+					isTransferring: false,
+					fileTransferProgress: 100,
+					fileTransferMessage: "File ready, create session to share",
+				}));
+			} catch (error) {
+				console.error("[collaborationStore] Pending file upload failed:", error);
+				update((state) => ({
+					...state,
+					isTransferring: false,
+					fileTransferProgress: 0,
+					fileTransferMessage: "",
+				}));
+				throw error;
+			}
+		},
+
+		/**
+		 * Check if there's a pending file
+		 */
+		hasPendingFile: (): boolean => {
+			let hasPending = false;
+			update((state) => {
+				if (state.sessionManager) {
+					hasPending = state.sessionManager.hasPendingFile();
+				}
+				return state;
+			});
+			return hasPending;
+		},
+
+		/**
+		 * Get pending file info
+		 */
+		getPendingFileInfo: (): { fileName: string; fileSize: number } | null => {
+			let info: { fileName: string; fileSize: number } | null = null;
+			update((state) => {
+				if (state.sessionManager) {
+					info = state.sessionManager.getPendingFileInfo();
+				}
+				return state;
+			});
+			return info;
+		},
+
+		/**
+		 * Get stored session info from localStorage
+		 */
+		getStoredSessionInfo: (): {
+			fileId: string;
+			fileName: string;
+			fileHash: string;
+			fileSize: number;
+		} | null => {
+			let info: {
+				fileId: string;
+				fileName: string;
+				fileHash: string;
+				fileSize: number;
+			} | null = null;
+			update((state) => {
+				if (state.sessionManager) {
+					info = state.sessionManager.loadSessionFromLocalStorage();
+				}
+				return state;
+			});
+			return info;
 		},
 
 		/**
