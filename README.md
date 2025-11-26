@@ -12,7 +12,6 @@
 
 GDSJam is a client-side web application for viewing GDSII files directly in the browser. Built for academics, chip design newcomers, and the photonics community to promote open-source EDA culture.
 
-**Privacy**: All processing happens in your browser - your GDS files are never uploaded to any server.
 
 ## Screenshots
 
@@ -104,6 +103,21 @@ This project uses the following open-source libraries:
 ## Documentation
 
 See `DevLog/` directory for detailed planning and implementation notes.
+
+
+## Privacy
+
+**Without collaboration sessions:** This webapp is entirely client-side — all file processing happens in your browser and your files never leave your device.
+
+**With collaboration sessions:** When you host or join a session:
+- **Files you upload** are temporarily stored on our server for sharing with session participants
+- Files are stored as content-addressed blobs (SHA-256 hash) and **automatically deleted after 7 days**
+- We log **IP addresses** for rate limiting (max 10 uploads/hour) and security purposes
+- **No user accounts** are created — we don't track personal information beyond what's technically necessary
+- Session metadata (file name, size, uploader ID) is synchronized via WebRTC to session participants
+
+**Recommendation:** Do not upload files containing sensitive or proprietary designs if you're not comfortable with temporary server-side storage.
+
 
 ## License
 
