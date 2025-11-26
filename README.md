@@ -1,11 +1,17 @@
 <div align="center">
-  <img src="public/icon.svg" alt="GDSJam Icon" width="128" height="128">
+  <a href="https://gdsjam.com"><img src="public/icon.svg" alt="GDSJam Icon" width="128" height="128"></a>
 
   # GDSJam
 
   Web-based GDSII viewer for semiconductor layout visualization.
 
   [https://gdsjam.com](https://gdsjam.com)
+
+  [![CI](https://github.com/jwt625/gdsjam/actions/workflows/ci.yml/badge.svg)](https://github.com/jwt625/gdsjam/actions/workflows/ci.yml)
+  [![Deploy](https://github.com/jwt625/gdsjam/actions/workflows/deploy.yml/badge.svg)](https://github.com/jwt625/gdsjam/actions/workflows/deploy.yml)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
+  [![Svelte](https://img.shields.io/badge/Svelte-5-orange.svg)](https://svelte.dev/)
 </div>
 
 ## Overview
