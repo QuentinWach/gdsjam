@@ -228,10 +228,10 @@ $: if (!$collaborationStore.isInSession) {
 	<div class="header">
 		<div class="header-content">
 			<div class="title-section">
-				<div class="title-container">
+				<a href="/" class="title-container">
 					<img src="/icon.svg" alt="GDSJam" class="title-icon" />
 					<h1 class="title">GDSJam</h1>
-				</div>
+				</a>
 				<p class="subtitle">Collaborative GDSII Viewer</p>
 				{#if $gdsStore.fileName}
 					<p class="file-name">Loaded: {$gdsStore.fileName}</p>
@@ -361,6 +361,11 @@ $: if (!$collaborationStore.isInSession) {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
+		text-decoration: none;
+	}
+
+	.title-container:hover .title {
+		color: #6bb3ff;
 	}
 
 	.title-icon {
