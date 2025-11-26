@@ -47,7 +47,7 @@ function handleToggleLayers() {
 <div class="mobile-controls">
 	<!-- Menu Items (shown when open) -->
 	{#if menuOpen}
-		<div class="menu-backdrop" onclick={toggleMenu} role="button" tabindex="-1"></div>
+		<button type="button" class="menu-backdrop" onclick={toggleMenu} aria-label="Close menu"></button>
 		<div class="menu-items">
 			<!-- Layers -->
 			<button class="menu-item" onclick={handleToggleLayers} class:active={layersVisible} title="Toggle Layers (L)">
@@ -133,6 +133,7 @@ function handleToggleLayers() {
 		right: 0;
 		bottom: 0;
 		background: rgba(0, 0, 0, 0.3);
+		border: none;
 		z-index: 998;
 		cursor: pointer;
 	}
