@@ -844,16 +844,28 @@ export class SessionManager {
 		// Only check if we're in a session
 		if (!this.sessionId) return;
 
+		// Already host, nothing to do
+		if (this.hostManager.getIsHost()) return;
+
 		const currentHostId = this.hostManager.getCurrentHostId();
 
-		// If there's a host, nothing to do
-		if (currentHostId) return;
-
-		if (DEBUG) {
-			console.log("[SessionManager] No host detected, triggering auto-promotion");
+		// Case 1: No host at all (currentHostId is empty)
+		if (!currentHostId) {
+			if (DEBUG) {
+				console.log("[SessionManager] No host detected, triggering auto-promotion");
+			}
+			this.tryAutoPromote();
+			return;
 		}
 
-		this.tryAutoPromote();
+		// Case 2: Host exists but is stale (closed tab without proper leave)
+		// canClaimHost() checks if hostLastSeen is past DISCONNECT_GRACE_PERIOD
+		if (this.hostManager.canClaimHost()) {
+			if (DEBUG) {
+				console.log("[SessionManager] Host is stale (closed tab?), triggering auto-promotion");
+			}
+			this.tryAutoPromote();
+		}
 	}
 
 	/**

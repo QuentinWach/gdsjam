@@ -50,6 +50,7 @@ export interface YjsParticipant {
 	userId: string;
 	displayName: string; // Unique "Anonymous Animal" name
 	joinedAt: number;
+	lastSeen: number; // Heartbeat timestamp for stale participant cleanup
 	color: string;
 }
 
