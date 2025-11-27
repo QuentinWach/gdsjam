@@ -80,10 +80,33 @@ function createCollaborationStore() {
 
 	// Clean up on page unload
 	if (typeof window !== "undefined") {
-		window.addEventListener("beforeunload", () => {
+		window.addEventListener("beforeunload", (event) => {
+			// Mark host for recovery if we're host (for page refresh)
+			sessionManager.markHostForRecovery();
+
+			// Show warning if host is leaving with viewers
+			if (sessionManager.getHostWarningNeeded()) {
+				event.preventDefault();
+				// Modern browsers require returnValue to be set
+				event.returnValue = "You are the session host. Leaving will affect other viewers.";
+				return event.returnValue;
+			}
+
 			sessionManager.destroy();
 		});
 	}
+
+	// Subscribe to host changes
+	sessionManager.onHostChanged((newHostId) => {
+		if (DEBUG) {
+			console.log("[collaborationStore] Host changed to:", newHostId);
+		}
+		update((state) => ({
+			...state,
+			isHost: newHostId === sessionManager.getUserId(),
+			connectedUsers: state.sessionManager?.getConnectedUsers() ?? [],
+		}));
+	});
 
 	return {
 		subscribe,
@@ -128,7 +151,7 @@ function createCollaborationStore() {
 					...state,
 					isInSession: true,
 					sessionId,
-					isHost: false,
+					isHost: state.sessionManager.getIsHost(), // May have reclaimed host
 					connectedUsers: state.sessionManager.getConnectedUsers(),
 				};
 			});
@@ -560,6 +583,86 @@ function createCollaborationStore() {
 				}
 				return initialState;
 			});
+		},
+
+		// ==========================================
+		// Host Management Actions
+		// ==========================================
+
+		/**
+		 * Check if viewer can claim host
+		 */
+		canClaimHost: (): boolean => {
+			let canClaim = false;
+			update((state) => {
+				if (state.sessionManager) {
+					canClaim = state.sessionManager.canClaimHost();
+				}
+				return state;
+			});
+			return canClaim;
+		},
+
+		/**
+		 * Claim host status (viewer becomes host)
+		 */
+		claimHost: () => {
+			update((state) => {
+				if (!state.sessionManager) return state;
+
+				const success = state.sessionManager.claimHost();
+
+				if (DEBUG) {
+					console.log("[collaborationStore] Claim host:", success);
+				}
+
+				if (success) {
+					return {
+						...state,
+						isHost: true,
+						connectedUsers: state.sessionManager.getConnectedUsers(),
+					};
+				}
+				return state;
+			});
+		},
+
+		/**
+		 * Transfer host to another user
+		 */
+		transferHost: (targetUserId: string) => {
+			update((state) => {
+				if (!state.sessionManager) return state;
+
+				const success = state.sessionManager.transferHost(targetUserId);
+
+				if (DEBUG) {
+					console.log("[collaborationStore] Transfer host to:", targetUserId, "success:", success);
+				}
+
+				if (success) {
+					return {
+						...state,
+						isHost: false,
+						connectedUsers: state.sessionManager.getConnectedUsers(),
+					};
+				}
+				return state;
+			});
+		},
+
+		/**
+		 * Check if host warning is needed before leaving
+		 */
+		getHostWarningNeeded: (): boolean => {
+			let needed = false;
+			update((state) => {
+				if (state.sessionManager) {
+					needed = state.sessionManager.getHostWarningNeeded();
+				}
+				return state;
+			});
+			return needed;
 		},
 	};
 }

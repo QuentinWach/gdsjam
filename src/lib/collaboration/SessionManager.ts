@@ -6,26 +6,19 @@
  * - Join existing sessions (read room parameter)
  * - Manage user ID (localStorage persistence)
  * - Track session state
+ * - Coordinate HostManager and ParticipantManager (facade pattern)
  */
 
 import { DEBUG } from "../config";
 import { generateUUID } from "../utils/uuid";
 import { FileTransfer } from "./FileTransfer";
+import { HostManager } from "./HostManager";
+import { ParticipantManager } from "./ParticipantManager";
 import type { CollaborationEvent, SessionMetadata, UserInfo } from "./types";
 import { YjsProvider } from "./YjsProvider";
 
 const USER_ID_KEY = "gdsjam-user-id";
 const SESSION_STORAGE_PREFIX = "gdsjam-session-";
-const USER_COLOR_PALETTE = [
-	"#FF6B6B", // Red
-	"#4ECDC4", // Teal
-	"#45B7D1", // Blue
-	"#FFA07A", // Light Salmon
-	"#98D8C8", // Mint
-	"#F7DC6F", // Yellow
-	"#BB8FCE", // Purple
-	"#85C1E2", // Sky Blue
-];
 
 // Stored session info for recovery after refresh
 interface StoredSessionInfo {
@@ -47,9 +40,10 @@ interface PendingFile {
 
 export class SessionManager {
 	private yjsProvider: YjsProvider;
+	private hostManager: HostManager;
+	private participantManager: ParticipantManager;
 	private userId: string;
 	private sessionId: string | null = null;
-	private isHost: boolean = false;
 	private fileTransfer: FileTransfer | null = null;
 	private uploadedFileBuffer: ArrayBuffer | null = null; // Store file for sharing with peers
 	private pendingFile: PendingFile | null = null; // File uploaded before session creation
@@ -58,6 +52,10 @@ export class SessionManager {
 		// Get or create user ID
 		this.userId = this.getOrCreateUserId();
 		this.yjsProvider = new YjsProvider(this.userId);
+
+		// Initialize managers
+		this.hostManager = new HostManager(this.yjsProvider, this.userId);
+		this.participantManager = new ParticipantManager(this.yjsProvider, this.userId);
 
 		if (DEBUG) {
 			console.log("[SessionManager] Initialized with user ID:", this.userId);
@@ -86,7 +84,6 @@ export class SessionManager {
 	createSession(): string {
 		const sessionId = generateUUID();
 		this.sessionId = sessionId;
-		this.isHost = true;
 
 		// Update URL with room parameter
 		const url = new URL(window.location.href);
@@ -95,6 +92,10 @@ export class SessionManager {
 
 		// Connect to Y.js room
 		this.yjsProvider.connect(sessionId);
+
+		// Initialize managers for this session
+		this.hostManager.initialize(sessionId);
+		this.participantManager.initialize(sessionId);
 
 		// Initialize session metadata in a single transaction to avoid multiple broadcasts
 		this.yjsProvider.getDoc().transact(() => {
@@ -116,6 +117,11 @@ export class SessionManager {
 				}
 			}
 		});
+
+		// Set ourselves as host and register as participant
+		this.hostManager.setCurrentHostId(this.userId);
+		this.participantManager.registerParticipant();
+		this.participantManager.setLocalAwarenessState({ isHost: true });
 
 		// Store the pending file buffer for potential re-sharing, save to localStorage, then clear pending state
 		if (this.pendingFile) {
@@ -230,13 +236,23 @@ export class SessionManager {
 	 */
 	joinSession(sessionId: string): void {
 		this.sessionId = sessionId;
-		this.isHost = false;
 
 		// Connect to Y.js room
 		this.yjsProvider.connect(sessionId);
 
+		// Initialize managers for this session
+		this.hostManager.initialize(sessionId);
+		this.participantManager.initialize(sessionId);
+
+		// Try to reclaim host if we were host before refresh
+		const reclaimed = this.hostManager.tryReclaimHost();
+
+		// Register as participant
+		this.participantManager.registerParticipant();
+		this.participantManager.setLocalAwarenessState({ isHost: reclaimed });
+
 		if (DEBUG) {
-			console.log("[SessionManager] Joined session:", sessionId);
+			console.log("[SessionManager] Joined session:", sessionId, "reclaimed host:", reclaimed);
 		}
 	}
 
@@ -244,9 +260,21 @@ export class SessionManager {
 	 * Leave current session
 	 */
 	leaveSession(): void {
+		// Cleanup host state if we're host (updates shared state for all peers)
+		if (this.hostManager.getIsHost()) {
+			this.hostManager.cleanupHostState();
+		}
+
+		// Unregister from participants
+		this.participantManager.unregisterParticipant();
+
+		// Disconnect from Y.js
 		this.yjsProvider.disconnect();
 		this.sessionId = null;
-		this.isHost = false;
+
+		// Destroy managers
+		this.hostManager.destroy();
+		this.participantManager.destroy();
 
 		// Remove room parameter from URL
 		const url = new URL(window.location.href);
@@ -269,7 +297,7 @@ export class SessionManager {
 	 * Check if current user is host
 	 */
 	getIsHost(): boolean {
-		return this.isHost;
+		return this.hostManager.getIsHost();
 	}
 
 	/**
@@ -281,62 +309,35 @@ export class SessionManager {
 
 	/**
 	 * Get user color based on user ID
+	 * Delegates to ParticipantManager
 	 */
 	getUserColor(userId: string): string {
-		// Generate consistent color based on user ID hash
-		let hash = 0;
-		for (let i = 0; i < userId.length; i++) {
-			hash = userId.charCodeAt(i) + ((hash << 5) - hash);
-		}
-		const index = Math.abs(hash) % USER_COLOR_PALETTE.length;
-		return USER_COLOR_PALETTE[index];
+		return this.participantManager.getUserColor(userId);
 	}
 
 	/**
 	 * Get all connected users
+	 * Uses Y.js participants for accurate tracking
 	 */
 	getConnectedUsers(): UserInfo[] {
-		// Try to get peers from WebRTC first
-		const webrtcPeerIds = this.yjsProvider.getPeerIds();
+		const participants = this.participantManager.getParticipants();
+		const currentHostId = this.hostManager.getCurrentHostId();
 
-		// Fallback: Get peers from awareness (works even if WebRTC fails)
-		const awareness = this.yjsProvider.getAwareness();
-		const awarenessStates = awareness.getStates();
+		// Convert YjsParticipant to UserInfo
+		const users: UserInfo[] = participants.map((p) => ({
+			id: p.userId,
+			color: p.color,
+			isHost: p.userId === currentHostId,
+			joinedAt: p.joinedAt,
+		}));
 
-		if (DEBUG) {
-			console.log("[SessionManager] Getting connected users:");
-			console.log("  - WebRTC peer IDs:", webrtcPeerIds);
-			console.log("  - Awareness states:", Array.from(awarenessStates.entries()));
-			console.log("  - Current user ID:", this.userId);
-			console.log("  - Awareness client ID:", awareness.clientID);
-		}
-
-		// Awareness uses numeric client IDs, not our UUID user IDs
-		// We need to count unique awareness clients, excluding ourselves
-		const myClientId = awareness.clientID;
-		const otherClientIds = Array.from(awarenessStates.keys()).filter((id) => id !== myClientId);
-
-		// Use whichever has more peers (WebRTC is preferred, but awareness is fallback)
-		const peerIds =
-			webrtcPeerIds.length > 0 ? webrtcPeerIds : otherClientIds.map((id) => `client-${id}`);
-
-		const users: UserInfo[] = [];
-
-		// Add current user
-		users.push({
-			id: this.userId,
-			color: this.getUserColor(this.userId),
-			isHost: this.isHost,
-			joinedAt: Date.now(),
-		});
-
-		// Add peers
-		for (const peerId of peerIds) {
+		// If no participants in Y.js yet, return at least ourselves
+		if (users.length === 0) {
 			users.push({
-				id: peerId,
-				color: this.getUserColor(peerId),
-				isHost: false, // TODO: Track actual host
-				joinedAt: Date.now(), // TODO: Track actual join time
+				id: this.userId,
+				color: this.participantManager.getLocalColor(),
+				isHost: this.hostManager.getIsHost(),
+				joinedAt: Date.now(),
 			});
 		}
 
@@ -371,7 +372,7 @@ export class SessionManager {
 		onProgress?: (progress: number, message: string) => void,
 		onEvent?: (event: CollaborationEvent) => void,
 	): Promise<void> {
-		if (!this.isHost) {
+		if (!this.hostManager.getIsHost()) {
 			throw new Error("Only the host can upload files");
 		}
 
@@ -567,8 +568,78 @@ export class SessionManager {
 	 * Destroy session manager
 	 */
 	destroy(): void {
+		this.hostManager.destroy();
+		this.participantManager.destroy();
 		this.yjsProvider.destroy();
 		this.uploadedFileBuffer = null;
 		this.fileTransfer = null;
+	}
+
+	// ==========================================
+	// Host Management Facade Methods
+	// ==========================================
+
+	/**
+	 * Get HostManager instance (for advanced use)
+	 */
+	getHostManager(): HostManager {
+		return this.hostManager;
+	}
+
+	/**
+	 * Get ParticipantManager instance (for advanced use)
+	 */
+	getParticipantManager(): ParticipantManager {
+		return this.participantManager;
+	}
+
+	/**
+	 * Mark host for recovery before page unload
+	 */
+	markHostForRecovery(): void {
+		this.hostManager.markHostForRecovery();
+	}
+
+	/**
+	 * Check if viewer can claim host
+	 */
+	canClaimHost(): boolean {
+		return this.hostManager.canClaimHost();
+	}
+
+	/**
+	 * Claim host status
+	 */
+	claimHost(): boolean {
+		const result = this.hostManager.claimHost();
+		if (result) {
+			this.participantManager.setLocalAwarenessState({ isHost: true });
+		}
+		return result;
+	}
+
+	/**
+	 * Transfer host to another user
+	 */
+	transferHost(targetUserId: string): boolean {
+		const result = this.hostManager.transferHost(targetUserId);
+		if (result) {
+			this.participantManager.setLocalAwarenessState({ isHost: false });
+		}
+		return result;
+	}
+
+	/**
+	 * Check if beforeunload warning is needed
+	 */
+	getHostWarningNeeded(): boolean {
+		return this.hostManager.getHostWarningNeeded();
+	}
+
+	/**
+	 * Register callback for host changes
+	 */
+	onHostChanged(callback: (newHostId: string) => void): void {
+		this.hostManager.onHostChanged(callback);
 	}
 }
