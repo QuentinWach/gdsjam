@@ -80,6 +80,7 @@ function handleMouseUp(e: MouseEvent) {
 // Touch event handlers
 function handleHeaderTouchStart(e: TouchEvent) {
 	if (e.touches.length !== 1) return;
+	e.preventDefault(); // Prevent synthesized mouse events (avoids double-trigger)
 	const touch = e.touches[0]!;
 	handlePointerStart(touch.clientX, touch.clientY);
 	window.addEventListener("touchmove", handleTouchMove, { passive: false });
@@ -89,14 +90,13 @@ function handleHeaderTouchStart(e: TouchEvent) {
 
 function handleTouchMove(e: TouchEvent) {
 	if (e.touches.length !== 1) return;
+	e.preventDefault(); // Prevent scrolling while interacting
 	const touch = e.touches[0]!;
 	handlePointerMove(touch.clientX, touch.clientY);
-	if (isDragging) {
-		e.preventDefault(); // Prevent scrolling while dragging
-	}
 }
 
 function handleTouchEnd(e: TouchEvent) {
+	e.preventDefault(); // Prevent synthesized mouse events
 	window.removeEventListener("touchmove", handleTouchMove);
 	window.removeEventListener("touchend", handleTouchEnd);
 	window.removeEventListener("touchcancel", handleTouchEnd);
