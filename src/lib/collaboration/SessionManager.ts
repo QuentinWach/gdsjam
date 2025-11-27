@@ -50,6 +50,7 @@ export class SessionManager {
 	private fileTransfer: FileTransfer | null = null;
 	private uploadedFileBuffer: ArrayBuffer | null = null; // Store file for sharing with peers
 	private pendingFile: PendingFile | null = null; // File uploaded before session creation
+	private hostCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
 		// Get or create user ID
@@ -395,6 +396,12 @@ export class SessionManager {
 	 * Leave current session
 	 */
 	leaveSession(): void {
+		// Stop periodic host check
+		if (this.hostCheckInterval) {
+			clearInterval(this.hostCheckInterval);
+			this.hostCheckInterval = null;
+		}
+
 		// Cleanup host state if we're host (updates shared state for all peers)
 		if (this.hostManager.getIsHost()) {
 			this.hostManager.cleanupHostState();
@@ -703,6 +710,12 @@ export class SessionManager {
 	 * Destroy session manager
 	 */
 	destroy(): void {
+		// Clean up periodic host check
+		if (this.hostCheckInterval) {
+			clearInterval(this.hostCheckInterval);
+			this.hostCheckInterval = null;
+		}
+
 		this.hostManager.destroy();
 		this.participantManager.destroy();
 		this.yjsProvider.destroy();
@@ -802,6 +815,7 @@ export class SessionManager {
 	 * This ensures there's always a host in an active session
 	 */
 	setupAutoPromotion(): void {
+		// React to host being cleared
 		this.hostManager.onHostAbsent(() => {
 			// Small delay to allow Y.js state to settle
 			setTimeout(() => {
@@ -809,9 +823,35 @@ export class SessionManager {
 			}, 100);
 		});
 
+		// Periodic check: THERE SHOULD ALWAYS BE A HOST
+		// This catches edge cases where Y.js events are missed
+		this.hostCheckInterval = setInterval(() => {
+			this.ensureHostExists();
+		}, 2000); // Check every 2 seconds
+
 		if (DEBUG) {
-			console.log("[SessionManager] Auto-promotion enabled");
+			console.log("[SessionManager] Auto-promotion enabled with periodic check");
 		}
+	}
+
+	/**
+	 * Ensure there is always a host in the session
+	 * Called periodically to catch any edge cases
+	 */
+	private ensureHostExists(): void {
+		// Only check if we're in a session
+		if (!this.sessionId) return;
+
+		const currentHostId = this.hostManager.getCurrentHostId();
+
+		// If there's a host, nothing to do
+		if (currentHostId) return;
+
+		if (DEBUG) {
+			console.log("[SessionManager] No host detected, triggering auto-promotion");
+		}
+
+		this.tryAutoPromote();
 	}
 
 	/**

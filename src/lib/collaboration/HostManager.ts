@@ -61,7 +61,14 @@ export class HostManager {
 			if (event.keysChanged.has("currentHostId")) {
 				const newHostId = sessionMap.get("currentHostId") as string | undefined;
 				if (newHostId) {
-					this.isHost = newHostId === this.userId;
+					const wasHost = this.isHost;
+					const amNowHost = newHostId === this.userId;
+
+					// Use setIsHost to properly start/stop heartbeat
+					if (wasHost !== amNowHost) {
+						this.setIsHost(amNowHost);
+					}
+
 					this.notifyHostChanged(newHostId);
 
 					if (DEBUG) {
@@ -69,7 +76,7 @@ export class HostManager {
 					}
 				} else {
 					// Host was cleared (intentional leave) - notify for auto-promotion
-					this.isHost = false;
+					this.setIsHost(false);
 					if (DEBUG) {
 						console.log("[HostManager] Host was cleared, triggering auto-promotion check");
 					}
