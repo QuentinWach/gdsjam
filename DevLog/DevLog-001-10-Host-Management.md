@@ -437,15 +437,46 @@ flowchart TD
 4. **No session = no persistence** - Without `?room=`, app is stateless viewer
 5. **pendingFile is intentionally not persisted** - Pre-session state should not survive refresh
 
-### Current Bug (Host Refresh)
+### Bugfixes (2025-11-27)
 
-The current `joinSession()` doesn't distinguish host from viewer:
-1. Connects to Y.js
-2. Waits for sync (5s timeout) - times out if no peers
-3. Writes participant data but NOT file metadata
-4. File metadata is never restored from localStorage
+**Bug 1: Host Refresh Not Recovering Session**
 
-**Fix Required:** Check if user is host FIRST (before Y.js operations). If host, restore from localStorage then write to Y.js. If viewer, wait for sync.
+The original `joinSession()` did not distinguish host from viewer:
+- Connected to Y.js and waited for sync (5s timeout)
+- Timed out if no peers were connected
+- Never restored file metadata from localStorage
+
+**Fix:** Implemented HOST PATH vs VIEWER PATH in `SessionManager.joinSession()`:
+- Check localStorage for host recovery flag FIRST
+- HOST PATH: Load metadata from localStorage, connect to Y.js, write authoritative state
+- VIEWER PATH: Connect to Y.js, wait for sync from host/peers
+
+**Bug 2: state_unsafe_mutation Error Blocking Render**
+
+Svelte 5 threw `state_unsafe_mutation` errors during render, preventing the GDS file from displaying even after successful download.
+
+**Root Cause:** `collaborationStore.getSessionManager()` and `isFileAvailable()` used `update()` to read state, which triggered state mutations during the render cycle.
+
+**Fix:** Changed getter methods to access the closure-scoped `sessionManager` variable directly instead of using `update()`:
+```typescript
+// Before (broken):
+getSessionManager: (): SessionManager | null => {
+    let manager: SessionManager | null = null;
+    update((state) => { manager = state.sessionManager; return state; });
+    return manager;
+}
+
+// After (fixed):
+getSessionManager: (): SessionManager | null => {
+    return sessionManager;
+}
+```
+
+**Bug 3: Unnecessary 5-Second Delay on Host Refresh**
+
+HOST PATH was waiting for Y.js sync (5s timeout) even though host has all metadata in localStorage and file is on the signaling server.
+
+**Fix:** Removed `waitForSync()` call from HOST PATH. Host connects to Y.js without waiting, then writes authoritative metadata immediately.
 
 ## Risk Mitigations
 
