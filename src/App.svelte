@@ -128,15 +128,25 @@ onMount(async () => {
 			console.error("[App] Session manager not available");
 			gdsStore.setError("Failed to initialize collaboration session");
 		} else {
-			// Check if file is already available in Y.js
-			if (collaborationStore.isFileAvailable()) {
+			// Set up file observer for the session
+			const sessionMap = sessionManager.getProvider().getMap("session");
+			const awareness = sessionManager.getProvider().getAwareness();
+			let currentFileId: string | null = null;
+			let isDownloading = false;
+			let hasShownSessionEndedNotice = false;
+
+			const downloadNewFile = async (fileId: string) => {
+				if (isDownloading) return;
+				isDownloading = true;
+
 				if (DEBUG) {
-					console.log("[App] File already available in session, downloading...");
+					console.log("[App] New file detected in session, downloading...", fileId);
 				}
 
 				try {
 					const { arrayBuffer, fileName } = await collaborationStore.downloadFile();
 					await loadGDSIIFromBuffer(arrayBuffer, fileName);
+					currentFileId = fileId;
 
 					if (DEBUG) {
 						console.log("[App] File loaded from session successfully");
@@ -146,7 +156,32 @@ onMount(async () => {
 					gdsStore.setError(
 						`Failed to download file from session: ${error instanceof Error ? error.message : String(error)}`,
 					);
+				} finally {
+					isDownloading = false;
 				}
+			};
+
+			const observer = () => {
+				if (isDownloading) return;
+
+				const fileId = sessionMap.get("fileId") as string | undefined;
+				if (fileId && fileId !== currentFileId) {
+					// New file available - download it
+					downloadNewFile(fileId);
+				}
+			};
+
+			// ALWAYS set up the observer to detect new file uploads from host
+			sessionMap.observe(observer);
+
+			// Check if file is already available in Y.js
+			if (collaborationStore.isFileAvailable()) {
+				if (DEBUG) {
+					console.log("[App] File already available in session, downloading...");
+				}
+
+				// Download the initial file - observer will handle future uploads
+				observer();
 			} else {
 				// Check if we have stored session info in localStorage (for recovery after refresh)
 				const storedSession = collaborationStore.getStoredSessionInfo();
@@ -162,64 +197,20 @@ onMount(async () => {
 							storedSession.fileHash,
 						);
 						await loadGDSIIFromBuffer(arrayBuffer, fileName);
+						// Set currentFileId so observer doesn't re-download
+						currentFileId = storedSession.fileId;
 
 						if (DEBUG) {
 							console.log("[App] File recovered from localStorage successfully");
 						}
-						// Skip the waiting logic since we recovered the file
-						return;
+						// Don't return early - observer is already set up for future updates
 					} catch (error) {
 						console.error("[App] Failed to recover file from localStorage:", error);
 						// Continue to waiting logic - maybe peers will sync the file
 					}
 				}
-				// Wait for metadata to appear by observing the session map
-				const sessionMap = sessionManager.getProvider().getMap("session");
-				const awareness = sessionManager.getProvider().getAwareness();
-				let currentFileId: string | null = null;
-				let isDownloading = false;
-				let hasShownSessionEndedNotice = false;
 
-				const downloadNewFile = async (fileId: string) => {
-					if (isDownloading) return;
-					isDownloading = true;
-
-					if (DEBUG) {
-						console.log("[App] New file detected in session, downloading...", fileId);
-					}
-
-					try {
-						const { arrayBuffer, fileName } = await collaborationStore.downloadFile();
-						await loadGDSIIFromBuffer(arrayBuffer, fileName);
-						currentFileId = fileId;
-
-						if (DEBUG) {
-							console.log("[App] File loaded from session successfully");
-						}
-					} catch (error) {
-						console.error("[App] Failed to download file from session:", error);
-						gdsStore.setError(
-							`Failed to download file from session: ${error instanceof Error ? error.message : String(error)}`,
-						);
-					} finally {
-						isDownloading = false;
-					}
-				};
-
-				const observer = () => {
-					if (isDownloading) return;
-
-					const fileId = sessionMap.get("fileId") as string | undefined;
-					if (fileId && fileId !== currentFileId) {
-						// New file available - download it
-						downloadNewFile(fileId);
-					}
-				};
-
-				sessionMap.observe(observer);
-
-				// Call observer once immediately to check current state
-				// (in case Y.js synced before we set up the observer)
+				// Call observer to check current state and download if available
 				observer();
 
 				// Also check after short delays to catch sync timing issues
