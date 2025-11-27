@@ -251,21 +251,30 @@ export class SessionManager {
 
 	/**
 	 * Join an existing session
+	 * Waits for Y.js sync before writing to avoid conflicts that wipe host data.
 	 */
-	joinSession(sessionId: string): void {
+	async joinSession(sessionId: string): Promise<void> {
 		this.sessionId = sessionId;
 
 		// Connect to Y.js room
 		this.yjsProvider.connect(sessionId);
 
-		// Initialize managers for this session
+		// Initialize managers (sets up observers, no Y.js writes yet)
 		this.hostManager.initialize(sessionId);
 		this.participantManager.initialize(sessionId);
 
-		// Try to reclaim host if we were host before refresh
-		const reclaimed = this.hostManager.tryReclaimHost();
+		// Set awareness immediately (safe - uses awareness protocol, not Y.js doc)
+		this.participantManager.setLocalAwarenessState({ isHost: false });
 
-		// Register as participant
+		// Wait for Y.js to sync with peers before any document writes
+		const synced = await this.yjsProvider.waitForSync(5000);
+
+		if (DEBUG) {
+			console.log("[SessionManager] Sync completed:", synced);
+		}
+
+		// Now safe to write - document has host's data
+		const reclaimed = this.hostManager.tryReclaimHost();
 		this.participantManager.registerParticipant();
 		this.participantManager.setLocalAwarenessState({ isHost: reclaimed });
 

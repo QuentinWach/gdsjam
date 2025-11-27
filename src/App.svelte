@@ -118,9 +118,10 @@ onMount(async () => {
 		if (DEBUG) {
 			console.log("[App] Joining collaboration session:", roomId);
 		}
-		collaborationStore.joinSession(roomId);
+		// Wait for Y.js sync before checking for file metadata
+		await collaborationStore.joinSession(roomId);
 
-		// Wait for file metadata to appear in session
+		// File metadata should be available after sync
 		const sessionManager = collaborationStore.getSessionManager();
 		if (!sessionManager) {
 			console.error("[App] Session manager not available");

@@ -135,23 +135,32 @@ function createCollaborationStore() {
 		},
 
 		/**
-		 * Join an existing session
+		 * Join an existing session (async - waits for Y.js sync)
 		 */
-		joinSession: (sessionId: string) => {
+		joinSession: async (sessionId: string) => {
+			let sessionManager: SessionManager | null = null;
+
+			update((state) => {
+				sessionManager = state.sessionManager;
+				return state;
+			});
+
+			if (!sessionManager) return;
+
+			await (sessionManager as SessionManager).joinSession(sessionId);
+
+			if (DEBUG) {
+				console.log("[collaborationStore] Joined session:", sessionId);
+			}
+
 			update((state) => {
 				if (!state.sessionManager) return state;
-
-				state.sessionManager.joinSession(sessionId);
-
-				if (DEBUG) {
-					console.log("[collaborationStore] Joined session:", sessionId);
-				}
 
 				return {
 					...state,
 					isInSession: true,
 					sessionId,
-					isHost: state.sessionManager.getIsHost(), // May have reclaimed host
+					isHost: state.sessionManager.getIsHost(),
 					connectedUsers: state.sessionManager.getConnectedUsers(),
 				};
 			});
