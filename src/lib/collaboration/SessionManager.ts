@@ -50,6 +50,7 @@ export class SessionManager {
 	private fileTransfer: FileTransfer | null = null;
 	private uploadedFileBuffer: ArrayBuffer | null = null; // Store file for sharing with peers
 	private pendingFile: PendingFile | null = null; // File uploaded before session creation
+	private hostCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
 		// Get or create user ID
@@ -99,6 +100,9 @@ export class SessionManager {
 		// Initialize managers for this session
 		this.hostManager.initialize(sessionId);
 		this.participantManager.initialize(sessionId);
+
+		// Enable auto-promotion: oldest viewer becomes host when host leaves
+		this.setupAutoPromotion();
 
 		// Initialize ALL session metadata in a single transaction to avoid race conditions
 		// This includes: session info, file info, host info, and initial participant
@@ -272,6 +276,9 @@ export class SessionManager {
 		this.hostManager.initialize(sessionId);
 		this.participantManager.initialize(sessionId);
 
+		// Enable auto-promotion: oldest viewer becomes host when host leaves
+		this.setupAutoPromotion();
+
 		// STEP 1: Check localStorage FIRST - Am I the host?
 		const wasHost = this.hostManager.hasHostRecoveryFlag();
 
@@ -389,6 +396,12 @@ export class SessionManager {
 	 * Leave current session
 	 */
 	leaveSession(): void {
+		// Stop periodic host check
+		if (this.hostCheckInterval) {
+			clearInterval(this.hostCheckInterval);
+			this.hostCheckInterval = null;
+		}
+
 		// Cleanup host state if we're host (updates shared state for all peers)
 		if (this.hostManager.getIsHost()) {
 			this.hostManager.cleanupHostState();
@@ -455,6 +468,7 @@ export class SessionManager {
 		// Convert YjsParticipant to UserInfo
 		const users: UserInfo[] = participants.map((p) => ({
 			id: p.userId,
+			displayName: p.displayName,
 			color: p.color,
 			isHost: p.userId === currentHostId,
 			joinedAt: p.joinedAt,
@@ -464,6 +478,7 @@ export class SessionManager {
 		if (users.length === 0) {
 			users.push({
 				id: this.userId,
+				displayName: this.participantManager.getLocalDisplayName() || "You",
 				color: this.participantManager.getLocalColor(),
 				isHost: this.hostManager.getIsHost(),
 				joinedAt: Date.now(),
@@ -697,6 +712,12 @@ export class SessionManager {
 	 * Destroy session manager
 	 */
 	destroy(): void {
+		// Clean up periodic host check
+		if (this.hostCheckInterval) {
+			clearInterval(this.hostCheckInterval);
+			this.hostCheckInterval = null;
+		}
+
 		this.hostManager.destroy();
 		this.participantManager.destroy();
 		this.yjsProvider.destroy();
@@ -759,14 +780,14 @@ export class SessionManager {
 	}
 
 	/**
-	 * Get transfer candidates (viewers sorted by joinedAt)
+	 * Get transfer candidates (viewers sorted by userId)
 	 * Returns user IDs of all participants except current host
 	 */
 	getTransferCandidates(): string[] {
 		const currentHostId = this.hostManager.getCurrentHostId();
 		const participants = this.participantManager.getParticipants();
 
-		// Filter out current host, return sorted by joinedAt (already sorted by getParticipants)
+		// Filter out current host, return sorted by userId (already sorted by getParticipants)
 		return participants.filter((p) => p.userId !== currentHostId).map((p) => p.userId);
 	}
 
@@ -782,5 +803,124 @@ export class SessionManager {
 	 */
 	onHostChanged(callback: (newHostId: string) => void): void {
 		this.hostManager.onHostChanged(callback);
+	}
+
+	/**
+	 * Register callback for when host becomes absent
+	 */
+	onHostAbsent(callback: () => void): void {
+		this.hostManager.onHostAbsent(callback);
+	}
+
+	/**
+	 * Set up auto-promotion: when host leaves, the oldest viewer becomes host
+	 * This ensures there's always a host in an active session
+	 */
+	setupAutoPromotion(): void {
+		// React to host being cleared
+		this.hostManager.onHostAbsent(() => {
+			// Small delay to allow Y.js state to settle
+			setTimeout(() => {
+				this.tryAutoPromote();
+			}, 100);
+		});
+
+		// Periodic check: THERE SHOULD ALWAYS BE A HOST
+		// This catches edge cases where Y.js events are missed
+		this.hostCheckInterval = setInterval(() => {
+			this.ensureHostExists();
+		}, 2000); // Check every 2 seconds
+
+		if (DEBUG) {
+			console.log("[SessionManager] Auto-promotion enabled with periodic check");
+		}
+	}
+
+	/**
+	 * Ensure there is always a host in the session
+	 * Called periodically to catch any edge cases
+	 */
+	private ensureHostExists(): void {
+		// Only check if we're in a session
+		if (!this.sessionId) return;
+
+		// Already host, nothing to do
+		if (this.hostManager.getIsHost()) return;
+
+		const currentHostId = this.hostManager.getCurrentHostId();
+
+		// Case 1: No host at all (currentHostId is empty)
+		if (!currentHostId) {
+			if (DEBUG) {
+				console.log("[SessionManager] No host detected, triggering auto-promotion");
+			}
+			this.tryAutoPromote();
+			return;
+		}
+
+		// Case 2: Host exists but is stale (closed tab without proper leave)
+		// canClaimHost() checks if hostLastSeen is past DISCONNECT_GRACE_PERIOD
+		if (this.hostManager.canClaimHost()) {
+			if (DEBUG) {
+				console.log("[SessionManager] Host is stale (closed tab?), triggering auto-promotion");
+			}
+			this.tryAutoPromote();
+		}
+	}
+
+	/**
+	 * Try to auto-promote to host if this user is the oldest participant
+	 * Uses deterministic ordering to avoid race conditions
+	 */
+	private tryAutoPromote(): void {
+		// Don't auto-promote if already host
+		if (this.hostManager.getIsHost()) {
+			if (DEBUG) {
+				console.log("[SessionManager] Already host, skipping auto-promotion");
+			}
+			return;
+		}
+
+		// Check if we can claim (no current host)
+		if (!this.hostManager.canClaimHost()) {
+			if (DEBUG) {
+				console.log("[SessionManager] Cannot claim host, skipping auto-promotion");
+			}
+			return;
+		}
+
+		// Get participants sorted by joinedAt
+		const participants = this.participantManager.getParticipants();
+		if (participants.length === 0) {
+			// No participants registered yet, claim host
+			if (DEBUG) {
+				console.log("[SessionManager] No participants, claiming host");
+			}
+			this.claimHost();
+			return;
+		}
+
+		// Check if we're the first participant (lowest userId in sorted list)
+		// Sorting by userId ensures deterministic, unambiguous selection across all clients
+		const firstParticipant = participants[0];
+		if (!firstParticipant) {
+			// Edge case: empty participants array
+			if (DEBUG) {
+				console.log("[SessionManager] No participants found, claiming host");
+			}
+			this.claimHost();
+			return;
+		}
+
+		if (firstParticipant.userId === this.userId) {
+			if (DEBUG) {
+				console.log("[SessionManager] I have lowest userId, claiming host");
+			}
+			this.claimHost();
+		} else {
+			if (DEBUG) {
+				console.log("[SessionManager] Not first in order, waiting for:", firstParticipant.userId);
+			}
+		}
 	}
 }

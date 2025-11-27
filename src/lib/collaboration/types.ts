@@ -50,6 +50,7 @@ export interface YjsParticipant {
 	userId: string;
 	displayName: string; // Unique "Anonymous Animal" name
 	joinedAt: number;
+	lastSeen: number; // Heartbeat timestamp for stale participant cleanup
 	color: string;
 }
 
@@ -70,6 +71,7 @@ export interface ViewportState {
  */
 export interface UserInfo {
 	id: string;
+	displayName: string; // Display name for the user
 	color: string; // Assigned color for viewport rectangles
 	isHost: boolean;
 	joinedAt: number;

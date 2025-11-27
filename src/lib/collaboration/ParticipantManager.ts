@@ -74,6 +74,12 @@ const ANIMALS = [
 	"Lion",
 ];
 
+// Heartbeat interval for participant liveness (milliseconds)
+const PARTICIPANT_HEARTBEAT_INTERVAL = 5000; // 5 seconds
+
+// Grace period before considering a participant stale (milliseconds)
+const PARTICIPANT_STALE_THRESHOLD = 15000; // 15 seconds
+
 export class ParticipantManager {
 	private yjsProvider: YjsProvider;
 	private userId: string;
@@ -81,6 +87,8 @@ export class ParticipantManager {
 	private localDisplayName: string | null = null;
 	private localColor: string;
 	private participantChangedCallbacks: Array<(participants: YjsParticipant[]) => void> = [];
+	private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+	private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(yjsProvider: YjsProvider, userId: string) {
 		this.yjsProvider = yjsProvider;
@@ -98,9 +106,118 @@ export class ParticipantManager {
 	initialize(sessionId: string): void {
 		this.sessionId = sessionId;
 		this.setupParticipantObserver();
+		this.startHeartbeat();
+		this.startStaleCleanup();
 
 		if (DEBUG) {
 			console.log("[ParticipantManager] Initialized for session:", sessionId);
+		}
+	}
+
+	/**
+	 * Start heartbeat to update lastSeen timestamp
+	 */
+	private startHeartbeat(): void {
+		this.stopHeartbeat();
+		this.heartbeatInterval = setInterval(() => {
+			this.updateLastSeen();
+		}, PARTICIPANT_HEARTBEAT_INTERVAL);
+
+		if (DEBUG) {
+			console.log("[ParticipantManager] Started heartbeat");
+		}
+	}
+
+	/**
+	 * Stop heartbeat
+	 */
+	private stopHeartbeat(): void {
+		if (this.heartbeatInterval) {
+			clearInterval(this.heartbeatInterval);
+			this.heartbeatInterval = null;
+		}
+	}
+
+	/**
+	 * Update lastSeen timestamp for this participant
+	 */
+	private updateLastSeen(): void {
+		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const participants = (sessionMap.get("participants") as YjsParticipant[]) || [];
+
+		const updatedParticipants = participants.map((p) => {
+			if (p.userId === this.userId) {
+				return { ...p, lastSeen: Date.now() };
+			}
+			return p;
+		});
+
+		// Only update if we found ourselves
+		if (updatedParticipants.some((p) => p.userId === this.userId)) {
+			sessionMap.set("participants", updatedParticipants);
+		}
+	}
+
+	/**
+	 * Start periodic cleanup of stale participants
+	 */
+	private startStaleCleanup(): void {
+		this.stopStaleCleanup();
+		this.cleanupInterval = setInterval(() => {
+			this.cleanupStaleParticipants();
+		}, PARTICIPANT_HEARTBEAT_INTERVAL); // Same interval as heartbeat
+
+		if (DEBUG) {
+			console.log("[ParticipantManager] Started stale participant cleanup");
+		}
+	}
+
+	/**
+	 * Stop stale cleanup
+	 */
+	private stopStaleCleanup(): void {
+		if (this.cleanupInterval) {
+			clearInterval(this.cleanupInterval);
+			this.cleanupInterval = null;
+		}
+	}
+
+	/**
+	 * Remove participants whose lastSeen is older than threshold
+	 */
+	private cleanupStaleParticipants(): void {
+		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const participants = (sessionMap.get("participants") as YjsParticipant[]) || [];
+		const now = Date.now();
+
+		const activeParticipants = participants.filter((p) => {
+			// Don't remove self
+			if (p.userId === this.userId) return true;
+
+			// Check if stale
+			const elapsed = now - (p.lastSeen || p.joinedAt);
+			if (elapsed > PARTICIPANT_STALE_THRESHOLD) {
+				if (DEBUG) {
+					console.log(
+						"[ParticipantManager] Removing stale participant:",
+						p.userId,
+						"elapsed:",
+						elapsed,
+					);
+				}
+				return false;
+			}
+			return true;
+		});
+
+		if (activeParticipants.length !== participants.length) {
+			sessionMap.set("participants", activeParticipants);
+			if (DEBUG) {
+				console.log(
+					"[ParticipantManager] Cleaned up stale participants, remaining:",
+					activeParticipants.length,
+				);
+			}
 		}
 	}
 
@@ -204,10 +321,12 @@ export class ParticipantManager {
 		this.localDisplayName = displayName;
 
 		// Create participant entry
+		const now = Date.now();
 		const participant: YjsParticipant = {
 			userId: this.userId,
 			displayName,
-			joinedAt: Date.now(),
+			joinedAt: now,
+			lastSeen: now,
 			color: this.localColor,
 		};
 
@@ -253,29 +372,37 @@ export class ParticipantManager {
 	 * Unregister self from participants (on leave)
 	 */
 	unregisterParticipant(): void {
+		this.removeParticipant(this.userId);
+	}
+
+	/**
+	 * Remove a participant by userId (when they disconnect)
+	 */
+	removeParticipant(userId: string): void {
 		const sessionMap = this.yjsProvider.getMap<any>("session");
 		const existingParticipants = (sessionMap.get("participants") as YjsParticipant[]) || [];
 
-		const updatedParticipants = existingParticipants.filter((p) => p.userId !== this.userId);
+		const updatedParticipants = existingParticipants.filter((p) => p.userId !== userId);
 
 		if (updatedParticipants.length !== existingParticipants.length) {
 			sessionMap.set("participants", updatedParticipants);
 
 			if (DEBUG) {
-				console.log("[ParticipantManager] Unregistered self");
+				console.log("[ParticipantManager] Removed participant:", userId);
 			}
 		}
 	}
 
 	/**
-	 * Get all participants sorted by joinedAt
+	 * Get all participants sorted by userId for deterministic ordering
+	 * Used for auto-promotion: lowest userId becomes host when host leaves
 	 */
 	getParticipants(): YjsParticipant[] {
 		const sessionMap = this.yjsProvider.getMap<any>("session");
 		const participants = (sessionMap.get("participants") as YjsParticipant[]) || [];
 
-		// Sort by joinedAt (first joined first)
-		return [...participants].sort((a, b) => a.joinedAt - b.joinedAt);
+		// Sort by userId for deterministic ordering (consistent across all clients)
+		return [...participants].sort((a, b) => a.userId.localeCompare(b.userId));
 	}
 
 	/**
@@ -348,6 +475,8 @@ export class ParticipantManager {
 	 * Destroy and cleanup
 	 */
 	destroy(): void {
+		this.stopHeartbeat();
+		this.stopStaleCleanup();
 		this.participantChangedCallbacks = [];
 		this.sessionId = null;
 		this.localDisplayName = null;

@@ -29,6 +29,7 @@ export class HostManager {
 	private isHost: boolean = false;
 	private hostHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
 	private hostChangedCallbacks: Array<(newHostId: string) => void> = [];
+	private hostAbsentCallbacks: Array<() => void> = [];
 
 	constructor(yjsProvider: YjsProvider, userId: string) {
 		this.yjsProvider = yjsProvider;
@@ -60,12 +61,26 @@ export class HostManager {
 			if (event.keysChanged.has("currentHostId")) {
 				const newHostId = sessionMap.get("currentHostId") as string | undefined;
 				if (newHostId) {
-					this.isHost = newHostId === this.userId;
+					const wasHost = this.isHost;
+					const amNowHost = newHostId === this.userId;
+
+					// Use setIsHost to properly start/stop heartbeat
+					if (wasHost !== amNowHost) {
+						this.setIsHost(amNowHost);
+					}
+
 					this.notifyHostChanged(newHostId);
 
 					if (DEBUG) {
 						console.log("[HostManager] Host changed to:", newHostId, "isHost:", this.isHost);
 					}
+				} else {
+					// Host was cleared (intentional leave) - notify for auto-promotion
+					this.setIsHost(false);
+					if (DEBUG) {
+						console.log("[HostManager] Host was cleared, triggering auto-promotion check");
+					}
+					this.notifyHostAbsent();
 				}
 			}
 		});
@@ -409,6 +424,22 @@ export class HostManager {
 	}
 
 	/**
+	 * Register callback for when host becomes absent (leaves)
+	 */
+	onHostAbsent(callback: () => void): void {
+		this.hostAbsentCallbacks.push(callback);
+	}
+
+	/**
+	 * Notify all host absent callbacks
+	 */
+	private notifyHostAbsent(): void {
+		for (const callback of this.hostAbsentCallbacks) {
+			callback();
+		}
+	}
+
+	/**
 	 * Get local isHost state
 	 */
 	getIsHost(): boolean {
@@ -433,6 +464,7 @@ export class HostManager {
 	destroy(): void {
 		this.stopHostHeartbeat();
 		this.hostChangedCallbacks = [];
+		this.hostAbsentCallbacks = [];
 		this.sessionId = null;
 		this.isHost = false;
 
