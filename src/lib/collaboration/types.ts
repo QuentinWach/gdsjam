@@ -81,6 +81,8 @@ export interface AwarenessState {
 	color: string;
 	isHost: boolean;
 	viewport?: CollaborativeViewportState | null;
+	/** Host includes this in awareness for P2 (heartbeat) sync */
+	broadcastEnabled?: boolean;
 }
 
 /**

@@ -212,9 +212,11 @@ describe("ViewportSync", () => {
 			mockProvider._sessionMapData.set("broadcastEnabled", true);
 			mockProvider._sessionMapData.set("broadcastHostId", "host-user");
 
-			// Add host viewport to awareness
+			// Add host viewport to awareness with broadcastEnabled for P2 heartbeat
 			mockProvider._awarenessStates.set(1, {
 				userId: "host-user",
+				isHost: true,
+				broadcastEnabled: true, // P2 heartbeat
 				viewport: { x: 100, y: 200, scale: 1.5, width: 1920, height: 1080, updatedAt: Date.now() },
 			});
 
@@ -288,6 +290,61 @@ describe("ViewportSync", () => {
 			sync.destroy();
 			// No error should be thrown
 			expect(sync).toBeDefined();
+		});
+	});
+
+	describe("P1 follow override", () => {
+		it("should start with undefined override", () => {
+			const sync = new ViewportSync(mockProvider as any, "viewer-user", callbacks);
+			expect(sync.getFollowOverride()).toBeUndefined();
+		});
+
+		it("should set P1 override when setFollowOverride is called", () => {
+			const sync = new ViewportSync(mockProvider as any, "viewer-user", callbacks);
+			sync.setFollowOverride(false);
+			expect(sync.getFollowOverride()).toBe(false);
+
+			sync.setFollowOverride(true);
+			expect(sync.getFollowOverride()).toBe(true);
+		});
+
+		it("should reset P1 override on P0 broadcast state change", () => {
+			const sync = new ViewportSync(mockProvider as any, "viewer-user", callbacks);
+
+			// Set P1 override
+			sync.setFollowOverride(false);
+			expect(sync.getFollowOverride()).toBe(false);
+
+			// Trigger P0 change by enabling broadcast (uses getMap().set which notifies observers)
+			sync.enableBroadcast();
+
+			// P1 should be reset to undefined
+			expect(sync.getFollowOverride()).toBeUndefined();
+		});
+
+		it("should not call onBroadcastStateChanged on P2 heartbeat when P1 override is set", () => {
+			const sync = new ViewportSync(mockProvider as any, "viewer-user", callbacks);
+
+			// Set P1 override to false (viewer manually disabled following)
+			sync.setFollowOverride(false);
+
+			// Clear previous calls
+			vi.clearAllMocks();
+
+			// Add host with broadcast enabled in awareness
+			mockProvider._sessionMapData.set("broadcastEnabled", true);
+			mockProvider._sessionMapData.set("broadcastHostId", "host-user");
+			mockProvider._awarenessStates.set(1, {
+				userId: "host-user",
+				isHost: true,
+				broadcastEnabled: true,
+			});
+
+			// Trigger awareness change (P2 heartbeat)
+			mockProvider._triggerAwarenessChange();
+
+			// Should NOT call onBroadcastStateChanged because P1 override is set
+			expect(callbacks.onBroadcastStateChanged).not.toHaveBeenCalled();
 		});
 	});
 });
