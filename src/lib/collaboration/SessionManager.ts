@@ -398,6 +398,10 @@ export class SessionManager {
 			this.participantManager.registerParticipant();
 			this.participantManager.setLocalAwarenessState({ isHost: false });
 
+			// Notify ViewportSync of current broadcast state (for late joiners)
+			// Must happen after sync so we have the host's broadcast state
+			this.viewportSync?.notifyCurrentBroadcastState();
+
 			if (DEBUG) {
 				console.log("[SessionManager] VIEWER PATH complete - synced from host/peers");
 			}

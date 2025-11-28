@@ -49,24 +49,22 @@ export class ViewportSync {
 		this.setupAwarenessListener();
 		this.setupSessionMapListener();
 
-		// Check initial broadcast state (for viewers joining after broadcast started)
-		this.notifyInitialBroadcastState();
-
 		if (DEBUG) {
 			console.log("[ViewportSync] Initialized for user:", userId);
 		}
 	}
 
 	/**
-	 * Notify callback of initial broadcast state (for late joiners)
+	 * Notify callback of current broadcast state
+	 * Call this after Y.js sync completes for viewers joining after broadcast started
 	 * Y.Map observers only fire on changes, not initial state
 	 */
-	private notifyInitialBroadcastState(): void {
+	notifyCurrentBroadcastState(): void {
 		const enabled = this.isBroadcastEnabled();
 		const hostId = this.getBroadcastHostId();
 
 		if (DEBUG) {
-			console.log("[ViewportSync] Initial broadcast state:", { enabled, hostId });
+			console.log("[ViewportSync] Current broadcast state:", { enabled, hostId });
 		}
 
 		// Only notify if broadcast is actually enabled
