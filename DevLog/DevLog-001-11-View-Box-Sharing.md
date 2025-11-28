@@ -58,7 +58,7 @@ When following host, disable these inputs:
 | Update throttle | 200ms | Balance between responsiveness and network load |
 | Zoom sync | Match zoom level exactly | Simple; same-sized features on all screens |
 | File not loaded | Ignore viewport sync | Avoid errors on unready clients |
-| Jump animation | Instant | No transition animation |
+| Animations | **NONE - EVER** | All transitions instant. No animations for viewport navigation, jumps, or any UI transitions. Animation is wasted time. |
 
 ## Architecture
 
@@ -142,32 +142,78 @@ Core viewport synchronization between host and followers.
 
 ### Phase 2: Minimap with Own Viewport
 
-Minimap component showing layout overview and current viewport.
+Minimap component showing layout overview for navigation.
+
+**Design Decisions:**
+
+| Aspect | Decision | Rationale |
+|--------|----------|-----------|
+| Renderer | Separate PixiJS Application instance | Clean separation, minor overhead acceptable |
+| LOD Culling | Cell-level first, then polygon-level (< 1% of layout extent) | Cell has `boundingBox`, skip all instances of small cells efficiently |
+| Colors | Same layer colors as main view | Consistency |
+| Position | Bottom-right corner, movable panel (like ParticipantList) | Mobile-friendly, user preference |
+| Toggle | 'M' key + mobile menu button | Confirmed 'M' key unused |
+| Auto-hide | Hide minimap when host broadcast enabled | Everyone shares same view |
+| Resize | Free resize by user, min 10% / max 100% of canvas | Prevent abuse |
+| Min size behavior | Sizing below 10% triggers hide | Clean UX |
+| Mobile | Visible and functional | Mobile is first citizen |
+| Click behavior | Click sets center of main viewport (instant) | No drag-to-pan for MVP |
+| Viewport rectangle | Update outline on viewport change only | No full re-render for viewport updates |
+| Animations | **NONE** - all transitions instant | No animations ever in this project |
+| Performance | Add minimap stats to existing perf panel when enabled | Monitoring |
+| Re-render trigger | Only on layer property changes | Viewport changes only update outline |
+| Panel z-index | Click to bring to front | Handle z-index between movable panels |
+
+**LOD Culling Algorithm:**
+1. Calculate layout extent from document `boundingBox`
+2. On layout load, mark each `Cell` as "skip in minimap" if:
+   - `(cell.boundingBox.maxX - cell.boundingBox.minX) < 0.01 * layoutExtentX` OR
+   - `(cell.boundingBox.maxY - cell.boundingBox.minY) < 0.01 * layoutExtentY`
+3. When rendering minimap, skip all instances of marked cells
+4. For remaining cells, also skip individual polygons below threshold
 
 **Scope:**
-- Resizable minimap overlay (corner of screen)
-- Simplified render of full layout bounds
-- Current viewport shown as rectangle
-- Click/drag on minimap to navigate main view
-- Toggle visibility (keyboard shortcut or button)
+- Resizable minimap overlay (bottom-right, movable panel)
+- Simplified render using LOD culling (skip small polygons)
+- Click on minimap to navigate main view (instant, no animation)
+- Toggle visibility ('M' key, mobile menu)
+- Auto-hide when host broadcast is active
+- Minimap rendering stats in performance panel
 
 **Files to Create:**
-- `src/components/ui/Minimap.svelte` - Minimap component
-- `src/lib/renderer/MinimapRenderer.ts` - Lightweight canvas renderer for minimap
+- `src/components/ui/Minimap.svelte` - Minimap component (movable panel pattern)
+- `src/lib/renderer/MinimapRenderer.ts` - Lightweight PixiJS renderer with LOD culling
 
 **Files to Modify:**
 - `src/components/viewer/ViewerCanvas.svelte` - Integrate minimap component
-- `src/lib/renderer/PixiRenderer.ts` - Expose bounds and viewport for minimap
+- `src/lib/renderer/PixiRenderer.ts` - Expose bounds for minimap
+- `src/components/ui/MobileControls.svelte` - Add minimap toggle button
+- `src/components/ui/PerformancePanel.svelte` - Add minimap stats section
 
 **TODO:**
-- [ ] Create MinimapRenderer with simplified drawing (outlines only, no fill)
-- [ ] Create Minimap.svelte component with resize handle
-- [ ] Render layout bounds from GDSDocument bounding box
-- [ ] Draw current viewport as rectangle
-- [ ] Implement click-to-navigate on minimap
-- [ ] Implement drag-to-pan on minimap
-- [ ] Add keyboard shortcut to toggle minimap (M key)
-- [ ] Persist minimap size preference in localStorage
+- [ ] Create MinimapRenderer (separate Pixi Application)
+  - [ ] Implement cell-level LOD culling (mark small cells on load)
+  - [ ] Implement polygon-level LOD culling (< 1% of layout extent)
+  - [ ] Share layer colors from main renderer
+- [ ] Create Minimap.svelte as movable/resizable panel
+  - [ ] Follow ParticipantList panel pattern
+  - [ ] Bottom-right default position
+  - [ ] Add z-index handling (click to bring to front)
+- [ ] Implement click-to-navigate (instant jump, no animation)
+- [ ] Draw viewport outline (updates on viewport change only)
+- [ ] Add 'M' keyboard shortcut to toggle minimap
+- [ ] Add minimap toggle to mobile menu
+- [ ] Implement resize with constraints (min 10%, max 100% of canvas)
+- [ ] Hide on resize below minimum
+- [ ] Auto-hide when host broadcast enabled
+- [ ] Persist minimap size/position in localStorage
+- [ ] Add minimap stats to PerformancePanel
+- [ ] Re-render only on layer property changes
+
+**Notes:**
+- Current LOD implementation may need stability testing
+- Cell has `boundingBox: BoundingBox` for extent calculation
+- Minimap shares layout bounds from main PixiRenderer
 
 ### Phase 3: Participant Viewports on Minimap
 
@@ -314,8 +360,13 @@ This approach:
 
 ### Phase 2
 - Minimap renders within 100ms of layout load
-- Click on minimap navigates main view correctly
+- Click on minimap navigates main view instantly (no animation)
 - Minimap resize persists across page reload
+- Minimap auto-hides when host broadcast is enabled
+- 'M' key toggles minimap visibility
+- Minimap toggle accessible in mobile menu
+- Minimap stats visible in performance panel when enabled
+- LOD culling correctly skips small polygons (< 1% of layout extent)
 
 ### Phase 3
 - All participant viewports visible on minimap with correct colors
