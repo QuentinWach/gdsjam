@@ -951,6 +951,17 @@ export class SessionManager {
 
 		this.viewportSync = new ViewportSync(this.yjsProvider, this.userId, this.viewportSyncCallbacks);
 
+		// When a new peer joins, re-broadcast the viewport state so they receive it
+		// This is needed because Y.Map observers only fire on changes, not initial state
+		this.yjsProvider.onEvent((event) => {
+			if (event.type === "peer-joined" && this.hostManager.getIsHost()) {
+				if (DEBUG) {
+					console.log("[SessionManager] New peer joined, re-broadcasting viewport state");
+				}
+				this.viewportSync?.rebroadcastState();
+			}
+		});
+
 		if (DEBUG) {
 			console.log("[SessionManager] ViewportSync initialized");
 		}

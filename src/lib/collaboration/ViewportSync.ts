@@ -191,6 +191,29 @@ export class ViewportSync {
 	}
 
 	/**
+	 * Re-broadcast the current broadcast state to trigger Y.Map observers
+	 * Call this when a new peer joins and broadcast is already enabled
+	 * This forces a Y.Map change event so the new peer's observer fires
+	 */
+	rebroadcastState(): void {
+		if (!this.isBroadcastEnabled()) {
+			return;
+		}
+
+		if (DEBUG) {
+			console.log("[ViewportSync] Re-broadcasting state for new peer");
+		}
+
+		// Force a Y.Map update by writing the same values
+		// Use a timestamp to ensure the change is detected
+		const sessionMap = this.getSessionMap();
+		this.yjsProvider.getDoc().transact(() => {
+			sessionMap.set("broadcastEnabled", true);
+			sessionMap.set("broadcastHostId", this.userId);
+		});
+	}
+
+	/**
 	 * Disable broadcast mode
 	 */
 	disableBroadcast(): void {

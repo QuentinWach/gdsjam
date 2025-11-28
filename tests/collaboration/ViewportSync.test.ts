@@ -254,6 +254,32 @@ describe("ViewportSync", () => {
 			// Should NOT have been called (broadcast not enabled)
 			expect(callbacks.onBroadcastStateChanged).not.toHaveBeenCalled();
 		});
+
+		it("should re-broadcast state when rebroadcastState is called", () => {
+			// Enable broadcast first
+			const sync = new ViewportSync(mockProvider as any, "host-user", callbacks);
+			sync.enableBroadcast();
+
+			// Clear the mock calls
+			vi.clearAllMocks();
+
+			// Call rebroadcast
+			sync.rebroadcastState();
+
+			// Should have set the session map values again
+			expect(mockProvider._sessionMapData.get("broadcastEnabled")).toBe(true);
+			expect(mockProvider._sessionMapData.get("broadcastHostId")).toBe("host-user");
+		});
+
+		it("should not re-broadcast if broadcast is not enabled", () => {
+			const sync = new ViewportSync(mockProvider as any, "user-123", callbacks);
+
+			// Call rebroadcast without enabling
+			sync.rebroadcastState();
+
+			// Should NOT have set any values
+			expect(mockProvider._sessionMapData.has("broadcastEnabled")).toBe(false);
+		});
 	});
 
 	describe("destroy", () => {
