@@ -164,25 +164,27 @@ Minimap component showing layout overview for navigation.
 |--------|----------|-----------|
 | Renderer | Separate PixiJS Application instance | Clean separation, minor overhead acceptable |
 | LOD Culling | Cell-level first, then polygon-level (< 1% of layout extent) | Cell has `boundingBox`, skip all instances of small cells efficiently |
-| Colors | Same layer colors as main view | Consistency |
+| Colors | Shared layer color scheme via event | Layer visibility also shared; use event-based coordination |
 | Position | Bottom-right corner, movable panel (like ParticipantList) | Mobile-friendly, user preference |
+| Default size | 30% of canvas | May be adjusted based on feedback |
 | Toggle | 'M' key + mobile menu button | Confirmed 'M' key unused |
 | Auto-hide | Hide minimap when host broadcast enabled | Everyone shares same view |
-| Resize | Free resize by user, min 10% / max 100% of canvas | Prevent abuse |
-| Min size behavior | Sizing below 10% triggers hide | Clean UX |
+| Resize | Free resize by user, min 10% / max ~4K (general cap) | Prevent weird scenarios; no need for strict document boundary |
+| Min size behavior | Sizing below 10% triggers **instant** hide | No animations ever |
 | Mobile | Visible and functional | Mobile is first citizen |
 | Click behavior | Click sets center of main viewport (instant) | No drag-to-pan for MVP |
-| Viewport rectangle | Update outline on viewport change only | No full re-render for viewport updates |
+| Viewport rectangle | Standard panel style (default stroke/fill like other panels) | Nothing fancy or special |
 | Animations | **NONE** - all transitions instant | No animations ever in this project |
-| Performance | Add minimap stats to existing perf panel when enabled | Monitoring |
-| Re-render trigger | Only on layer property changes | Viewport changes only update outline |
-| Panel z-index | Click to bring to front | Handle z-index between movable panels |
+| Performance | Add minimap stats (follow main canvas pattern, cut redundant/duplicates) | Monitoring |
+| Re-render trigger | Only on layer property changes (event-based subscription) | Viewport changes only update outline |
+| Panel z-index | Add shared z-index management store | Click to bring to front; needed for multiple panels |
 
 **LOD Culling Algorithm:**
 1. Calculate layout extent from document `boundingBox`
-2. On layout load, mark each `Cell` as "skip in minimap" if:
+2. **On parsing**, mark each `Cell` as "skip in minimap" if:
    - `(cell.boundingBox.maxX - cell.boundingBox.minX) < 0.01 * layoutExtentX` OR
    - `(cell.boundingBox.maxY - cell.boundingBox.minY) < 0.01 * layoutExtentY`
+   - **Threshold is 1% of layout extent** (e.g., 10mm chip → skip cells < 100µm)
 3. When rendering minimap, skip all instances of marked cells
 4. For remaining cells, also skip individual polygons below threshold
 
@@ -197,37 +199,68 @@ Minimap component showing layout overview for navigation.
 **Files to Create:**
 - `src/components/ui/Minimap.svelte` - Minimap component (movable panel pattern)
 - `src/lib/renderer/MinimapRenderer.ts` - Lightweight PixiJS renderer with LOD culling
+- `src/stores/panelZIndexStore.ts` - Shared z-index management for movable panels
 
 **Files to Modify:**
 - `src/components/viewer/ViewerCanvas.svelte` - Integrate minimap component
-- `src/lib/renderer/PixiRenderer.ts` - Expose bounds for minimap
+- `src/lib/renderer/PixiRenderer.ts` - Expose document bounds and layer colors
 - `src/components/ui/MobileControls.svelte` - Add minimap toggle button
 - `src/components/ui/PerformancePanel.svelte` - Add minimap stats section
+- `src/components/ui/ParticipantList.svelte` - Integrate z-index store
+- `src/lib/gds/GDSParser.ts` - Add `skipInMinimap` marking during parse
+- `src/types/gds.ts` - Add `skipInMinimap: boolean` to Cell type
 
 **TODO:**
+- [ ] Add `skipInMinimap: boolean` to Cell type in `src/types/gds.ts`
+- [ ] Mark cells with `skipInMinimap` during parsing in GDSParser
+- [ ] Create `src/stores/panelZIndexStore.ts` for shared z-index management
+- [ ] Update ParticipantList.svelte to use panelZIndexStore
 - [ ] Create MinimapRenderer (separate Pixi Application)
-  - [ ] Implement cell-level LOD culling (mark small cells on load)
+  - [ ] Implement cell-level LOD culling (use `skipInMinimap` flag)
   - [ ] Implement polygon-level LOD culling (< 1% of layout extent)
-  - [ ] Share layer colors from main renderer
+  - [ ] Subscribe to layer color/visibility change events
+  - [ ] Expose public API: `getDocumentBoundingBox()`, `getLayerColors()`, `getDocumentUnits()`
 - [ ] Create Minimap.svelte as movable/resizable panel
   - [ ] Follow ParticipantList panel pattern
   - [ ] Bottom-right default position
-  - [ ] Add z-index handling (click to bring to front)
-- [ ] Implement click-to-navigate (instant jump, no animation)
-- [ ] Draw viewport outline (updates on viewport change only)
+  - [ ] Default size 30% of canvas
+  - [ ] Use panelZIndexStore for z-index management
+- [ ] Implement click-to-navigate (instant jump)
+- [ ] Draw viewport outline (standard panel style)
 - [ ] Add 'M' keyboard shortcut to toggle minimap
 - [ ] Add minimap toggle to mobile menu
-- [ ] Implement resize with constraints (min 10%, max 100% of canvas)
-- [ ] Hide on resize below minimum
+- [ ] Implement resize with constraints (min 10%, max ~4K general cap)
+- [ ] Instant hide when resized below minimum (no animation)
 - [ ] Auto-hide when host broadcast enabled
 - [ ] Persist minimap size/position in localStorage
-- [ ] Add minimap stats to PerformancePanel
-- [ ] Re-render only on layer property changes
+- [ ] Add minimap stats to PerformancePanel (follow main canvas pattern, cut redundant)
+- [ ] Event-based subscription for layer visibility/color changes
 
 **Notes:**
-- Current LOD implementation may need stability testing
 - Cell has `boundingBox: BoundingBox` for extent calculation
 - Minimap shares layout bounds from main PixiRenderer
+- Layer color/visibility coordination is event-based (minimap subscribes)
+- Max size cap is general (e.g., 4K equivalent) rather than document-specific
+
+**Implementation Q&A (2025-11-28):**
+
+| Question | Decision |
+|----------|----------|
+| When to calculate `skipInMinimap`? | Second pass in parser, after global bbox is known (line ~666) |
+| Separate PIXI Application vs shared? | Separate Application - acceptable since minimap only renders on load and layer changes |
+| Event system for layer changes? | Svelte stores (Option B) - fits existing architecture, no new infrastructure |
+
+**Implementation Steps:**
+
+1. **Types + Parser** - Add `skipInMinimap` to Cell type, mark cells in parser
+2. **Panel Z-Index Store** - Create `panelZIndexStore.ts`, update ParticipantList
+3. **Layer Store** - Create `layerStore.ts` for layer visibility/color tracking
+4. **PixiRenderer API** - Add `getDocumentBoundingBox()`, `getLayerColors()`, `getDocumentUnits()`
+5. **MinimapRenderer** - Create renderer with LOD culling, viewport outline
+6. **Minimap.svelte** - Movable panel component with click-to-navigate
+7. **ViewerCanvas Integration** - Wire up minimap, track viewport bounds
+8. **Keyboard + Mobile** - 'M' key shortcut, mobile menu toggle
+9. **Performance Panel** - Add minimap stats section
 
 ### Phase 3: Participant Viewports on Minimap
 
