@@ -1,7 +1,7 @@
 # Layer Visibility Sync
 
 **Date:** 2025-11-29
-**Status:** Implemented
+**Status:** Complete
 **Issue:** https://github.com/jwt625/gdsjam/issues/16
 
 ## Problem Statement
@@ -125,7 +125,7 @@ interface LayerSyncCallbacks {
 
 ### Created Files
 
-1. **`src/lib/collaboration/LayerSync.ts`** (166 lines)
+1. **`src/lib/collaboration/LayerSync.ts`** (182 lines)
    - P0/P1/P2 priority system matching ViewportSync
    - 200ms throttled broadcasts
    - Awareness and session map listeners
@@ -136,8 +136,16 @@ interface LayerSyncCallbacks {
 2. **`src/lib/collaboration/SessionManager.ts`** - Added LayerSync integration and facade methods
 3. **`src/stores/collaborationStore.ts`** - Added `isLayerBroadcasting`, `isLayerFollowing` state and actions
 4. **`src/stores/layerStore.ts`** - Added `applyRemoteVisibility()` method
-5. **`src/components/ui/LayerPanel.svelte`** - Connected to collaboration sync
+5. **`src/components/ui/LayerPanel.svelte`** - Connected to collaboration sync with role-based UI
 6. **`src/components/viewer/ViewerCanvas.svelte`** - Set up layer sync callbacks
+
+### UI Pattern
+
+LayerPanel now matches the viewport broadcast pattern in ParticipantList:
+- **Host sees:** "Broadcast layers" checkbox
+- **Viewer sees:** "Follow host" checkbox
+- Only displayed when in a collaboration session
+- Viewer checkbox auto-syncs when host enables/disables broadcast
 
 ## Success Criteria
 

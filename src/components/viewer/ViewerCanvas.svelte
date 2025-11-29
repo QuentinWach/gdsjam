@@ -24,7 +24,7 @@ let canvas: HTMLCanvasElement;
 let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
 let panelsVisible = $state(false);
-let layerPanelVisible = $state(false);
+let layerPanelVisible = $state(true);
 let minimapVisible = $state(true);
 let layerStoreInitialized = false;
 

@@ -1,8 +1,10 @@
 <script lang="ts">
+import { onMount } from "svelte";
 import { DEBUG } from "../../lib/config";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";
 import { layerStore } from "../../stores/layerStore";
+import { getPanelZIndex, panelZIndexStore } from "../../stores/panelZIndexStore";
 import type { FileStatistics } from "../../types/gds";
 
 interface Props {
@@ -12,12 +14,118 @@ interface Props {
 
 const { statistics, visible = true }: Props = $props();
 
+const zIndex = getPanelZIndex("layers");
+const STORAGE_KEY = "layer-panel-state";
+
+// Panel state
+let isCollapsed = $state(false);
+let panelPosition = $state({ x: -1, y: -1 });
+let isDragging = $state(false);
+let dragStart = $state({ x: 0, y: 0 });
+let mouseDownTime = $state(0);
+let mouseDownPos = $state({ x: 0, y: 0 });
+const CLICK_THRESHOLD_MS = 200;
+const DRAG_THRESHOLD_PX = 5;
+
+function loadState() {
+	try {
+		const saved = localStorage.getItem(STORAGE_KEY);
+		if (saved) {
+			const state = JSON.parse(saved);
+			if (state.position) panelPosition = state.position;
+			if (state.collapsed !== undefined) isCollapsed = state.collapsed;
+		}
+	} catch (_e) { /* ignore */ }
+}
+
+function saveState() {
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify({ position: panelPosition, collapsed: isCollapsed }));
+	} catch (_e) { /* ignore */ }
+}
+
+function initDefaultPosition() {
+	if (panelPosition.x === -1 || panelPosition.y === -1) {
+		panelPosition = { x: window.innerWidth - 290, y: 10 };
+	}
+}
+
+// Drag handlers
+function handlePointerStart(clientX: number, clientY: number) {
+	mouseDownTime = Date.now();
+	mouseDownPos = { x: clientX, y: clientY };
+	dragStart = { x: clientX - panelPosition.x, y: clientY - panelPosition.y };
+}
+
+function handlePointerMove(clientX: number, clientY: number) {
+	const dx = Math.abs(clientX - mouseDownPos.x);
+	const dy = Math.abs(clientY - mouseDownPos.y);
+	if (!isDragging && (dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX)) isDragging = true;
+	if (isDragging) panelPosition = { x: clientX - dragStart.x, y: clientY - dragStart.y };
+}
+
+function handlePointerEnd(clientX: number, clientY: number) {
+	const elapsed = Date.now() - mouseDownTime;
+	const dx = Math.abs(clientX - mouseDownPos.x);
+	const dy = Math.abs(clientY - mouseDownPos.y);
+	if (elapsed < CLICK_THRESHOLD_MS && dx < DRAG_THRESHOLD_PX && dy < DRAG_THRESHOLD_PX) {
+		isCollapsed = !isCollapsed;
+	}
+	isDragging = false;
+	saveState();
+}
+
+function handleHeaderMouseDown(e: MouseEvent) {
+	handlePointerStart(e.clientX, e.clientY);
+	window.addEventListener("mousemove", handleMouseMove);
+	window.addEventListener("mouseup", handleMouseUp);
+}
+function handleMouseMove(e: MouseEvent) { handlePointerMove(e.clientX, e.clientY); }
+function handleMouseUp(e: MouseEvent) {
+	window.removeEventListener("mousemove", handleMouseMove);
+	window.removeEventListener("mouseup", handleMouseUp);
+	handlePointerEnd(e.clientX, e.clientY);
+}
+
+function handleHeaderTouchStart(e: TouchEvent) {
+	if (e.touches.length !== 1) return;
+	e.preventDefault();
+	const touch = e.touches[0]!;
+	handlePointerStart(touch.clientX, touch.clientY);
+	window.addEventListener("touchmove", handleTouchMove, { passive: false });
+	window.addEventListener("touchend", handleTouchEnd);
+	window.addEventListener("touchcancel", handleTouchEnd);
+}
+function handleTouchMove(e: TouchEvent) {
+	if (e.touches.length !== 1) return;
+	e.preventDefault();
+	handlePointerMove(e.touches[0]!.clientX, e.touches[0]!.clientY);
+}
+function handleTouchEnd(e: TouchEvent) {
+	e.preventDefault();
+	window.removeEventListener("touchmove", handleTouchMove);
+	window.removeEventListener("touchend", handleTouchEnd);
+	window.removeEventListener("touchcancel", handleTouchEnd);
+	handlePointerEnd(e.changedTouches[0]!.clientX, e.changedTouches[0]!.clientY);
+}
+
+onMount(() => { loadState(); initDefaultPosition(); });
+
 const storeState = $derived($layerStore);
 const layerVisibility = $derived(storeState.visibility);
 const isInSession = $derived($collaborationStore.isInSession);
 const isHost = $derived($collaborationStore.isHost);
 const isLayerBroadcasting = $derived($collaborationStore.isLayerBroadcasting);
 const isLayerFollowing = $derived($collaborationStore.isLayerFollowing);
+
+// Compute if all layers are visible (for consolidated button)
+const allLayersVisible = $derived(() => {
+	if (!statistics) return true;
+	for (const key of statistics.layerStats.keys()) {
+		if (!(layerVisibility[key] ?? true)) return false;
+	}
+	return true;
+});
 
 function toggleLayer(key: string) {
 	// Update gdsStore first (source of truth for document state)
@@ -99,11 +207,31 @@ function getLayerColor(layer: number, datatype: number): string {
 }
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 {#if visible && statistics}
-	<div class="layer-panel">
-		<div class="panel-header">
+	<div
+		class="layer-panel"
+		class:collapsed={isCollapsed}
+		class:dragging={isDragging}
+		style="left: {panelPosition.x}px; top: {panelPosition.y}px; z-index: {$zIndex};"
+		onmousedown={() => panelZIndexStore.bringToFront("layers")}
+	>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="panel-header"
+			onmousedown={handleHeaderMouseDown}
+			ontouchstart={handleHeaderTouchStart}
+			role="button"
+			tabindex="0"
+			aria-expanded={!isCollapsed}
+		>
 			<h3>Layers ({statistics.layerStats.size})</h3>
+			<svg class="chevron-icon" class:rotated={isCollapsed} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<polyline points="6 9 12 15 18 9"></polyline>
+			</svg>
+		</div>
 
+		{#if !isCollapsed}
 			{#if isInSession}
 				<div class="layer-sync-controls">
 					{#if isHost}
@@ -123,45 +251,34 @@ function getLayerColor(layer: number, datatype: number): string {
 			<div class="bulk-actions">
 				<button
 					onclick={() => {
-						gdsStore.setAllLayersVisibility(true);
-						layerStore.showAll();
-						const updatedVisibility = getVisibilityFromGdsStore();
-						onLayerVisibilityChange(updatedVisibility);
+						const showAll = !allLayersVisible();
+						gdsStore.setAllLayersVisibility(showAll);
+						if (showAll) layerStore.showAll(); else layerStore.hideAll();
+						onLayerVisibilityChange(getVisibilityFromGdsStore());
 					}}
 				>
-					Show All
-				</button>
-				<button
-					onclick={() => {
-						gdsStore.setAllLayersVisibility(false);
-						layerStore.hideAll();
-						const updatedVisibility = getVisibilityFromGdsStore();
-						onLayerVisibilityChange(updatedVisibility);
-					}}
-				>
-					Hide All
+					{allLayersVisible() ? "Hide All" : "Show All"}
 				</button>
 			</div>
-		</div>
 
-		<div class="layer-list">
-			{#each Array.from(statistics.layerStats.entries()).sort((a, b) => a[1].layer - b[1].layer) as [key, layerStat]}
-				<div class="layer-item">
-					<input type="checkbox" checked={layerVisibility[key] ?? true} onchange={() => toggleLayer(key)} />
-					<div class="layer-color" style="background-color: {getLayerColor(layerStat.layer, layerStat.datatype)}"></div>
-					<span class="layer-name">{layerStat.layer}:{layerStat.datatype}</span>
-					<span class="layer-count">{layerStat.polygonCount.toLocaleString()}</span>
-				</div>
-			{/each}
-		</div>
+			<div class="layer-list">
+				{#each Array.from(statistics.layerStats.entries()).sort((a, b) => a[1].layer - b[1].layer) as [key, layerStat]}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<div class="layer-item" role="button" tabindex="0" onclick={() => toggleLayer(key)}>
+						<input type="checkbox" checked={layerVisibility[key] ?? true} onclick={(e) => e.stopPropagation()} onchange={() => toggleLayer(key)} />
+						<div class="layer-color" style="background-color: {getLayerColor(layerStat.layer, layerStat.datatype)}"></div>
+						<span class="layer-name">{layerStat.layer}:{layerStat.datatype}</span>
+						<span class="layer-count">{layerStat.polygonCount.toLocaleString()}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 {/if}
 
 <style>
 	.layer-panel {
 		position: fixed;
-		top: 10px;
-		right: 10px;
 		width: 280px;
 		max-height: 80vh;
 		background: rgba(0, 0, 0, 0.9);
@@ -169,28 +286,42 @@ function getLayerColor(layer: number, datatype: number): string {
 		border-radius: 4px;
 		font-family: monospace;
 		font-size: 12px;
-		z-index: 1000;
 		display: flex;
 		flex-direction: column;
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+		user-select: none;
 	}
+
+	.layer-panel.collapsed { max-height: 44px; }
+	.layer-panel.dragging { cursor: grabbing; opacity: 0.9; }
 
 	.panel-header {
 		padding: 12px;
 		border-bottom: 1px solid #444;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		cursor: grab;
 	}
 
-	h3 {
-		margin: 0 0 8px 0;
-		font-size: 14px;
-		color: #fff;
+	.layer-panel.dragging .panel-header { cursor: grabbing; }
+	.panel-header:hover { background: rgba(255, 255, 255, 0.05); }
+
+	h3 { margin: 0; font-size: 14px; color: #fff; }
+
+	.chevron-icon {
+		width: 16px;
+		height: 16px;
+		color: #888;
+		transition: transform 0.2s ease-out;
+		flex-shrink: 0;
 	}
+	.chevron-icon.rotated { transform: rotate(-90deg); }
 
 	.layer-sync-controls {
-		margin-bottom: 8px;
-		padding: 6px;
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 3px;
+		padding: 8px 12px;
+		background: rgba(255, 255, 255, 0.02);
+		border-bottom: 1px solid #333;
 	}
 
 	.sync-toggle {
@@ -208,22 +339,13 @@ function getLayerColor(layer: number, datatype: number): string {
 		cursor: pointer;
 	}
 
-	.toggle-label {
-		font-size: 11px;
-		color: #aaa;
-	}
+	.toggle-label { font-size: 11px; color: #aaa; }
+	.sync-toggle:hover .toggle-label { color: #ddd; }
 
-	.sync-toggle:hover .toggle-label {
-		color: #ddd;
-	}
-
-	.bulk-actions {
-		display: flex;
-		gap: 8px;
-	}
+	.bulk-actions { padding: 8px 12px; border-bottom: 1px solid #333; }
 
 	.bulk-actions button {
-		flex: 1;
+		width: 100%;
 		padding: 4px 8px;
 		background: #333;
 		color: #ccc;
@@ -233,10 +355,7 @@ function getLayerColor(layer: number, datatype: number): string {
 		font-size: 11px;
 	}
 
-	.bulk-actions button:hover {
-		background: #444;
-		border-color: #666;
-	}
+	.bulk-actions button:hover { background: #444; border-color: #666; }
 
 	.layer-list {
 		overflow-y: auto;
@@ -253,11 +372,10 @@ function getLayerColor(layer: number, datatype: number): string {
 		padding: 4px;
 		margin: 2px 0;
 		border-radius: 3px;
+		cursor: pointer;
 	}
 
-	.layer-item:hover {
-		background: rgba(255, 255, 255, 0.05);
-	}
+	.layer-item:hover { background: rgba(255, 255, 255, 0.05); }
 
 	.layer-color {
 		width: 16px;
@@ -267,18 +385,8 @@ function getLayerColor(layer: number, datatype: number): string {
 		flex-shrink: 0;
 	}
 
-	.layer-name {
-		flex: 1;
-		color: #aaa;
-	}
-
-	.layer-count {
-		color: #0f0;
-		font-size: 11px;
-	}
-
-	input[type="checkbox"] {
-		cursor: pointer;
-	}
+	.layer-name { flex: 1; color: #aaa; }
+	.layer-count { color: #0f0; font-size: 11px; }
+	input[type="checkbox"] { cursor: pointer; }
 </style>
 
