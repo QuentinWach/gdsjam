@@ -1,7 +1,7 @@
 # View Box Sharing
 
-**Date:** 2025-11-27 (Phase 1), 2025-11-28 (Phase 2)
-**Status:** Phase 2 Complete
+**Date:** 2025-11-27 (Phase 1), 2025-11-28 (Phase 2), 2025-11-29 (Phase 3)
+**Status:** Phase 3 Complete
 **Issue:** https://github.com/jwt625/gdsjam/issues/15
 **PR:** https://github.com/jwt625/gdsjam/pull/25 (Phase 1)
 
@@ -400,16 +400,23 @@ Display all participants' viewports on minimap with interaction.
    - Pass to MinimapRenderer on each update
    - Update `onNavigate` callback signature to include optional zoom
 
-**TODO:**
-- [ ] Add `ParticipantViewport` interface to types.ts
-- [ ] Extend ViewportSync to broadcast all users' viewports
-- [ ] Add `getParticipantViewports()` method to ViewportSync
-- [ ] Add participant viewport rendering to MinimapRenderer
-- [ ] Add name labels (top-left, with background)
-- [ ] Add glow effect for followed user's viewport
-- [ ] Implement click-on-viewport detection and navigation
-- [ ] Wire up ViewerCanvas to pass participant viewports to Minimap
-- [ ] Update Minimap component to accept and forward participant data
+**TODO:** (Completed 2025-11-29)
+- [x] Add `ParticipantViewport` interface to types.ts
+- [x] Extend ViewportSync to broadcast all users' viewports
+- [x] Add `getParticipantViewports()` method to ViewportSync
+- [x] Add participant viewport rendering to MinimapRenderer
+- [x] Add name labels (top-left, with background)
+- [x] Add glow effect for followed user's viewport
+- [x] Implement click-on-viewport detection and navigation
+- [x] Wire up ViewerCanvas to pass participant viewports to Minimap
+- [x] Update Minimap component to accept and forward participant data
+
+**Implementation Notes:**
+- Self viewport excluded from participant list (own viewport already shown as white outline)
+- Viewport coordinate conversion uses same logic as `ViewportManager.getViewportBounds()` to ensure alignment
+- Added `setViewportCenterAndScale()` to PixiRenderer for click-to-navigate with exact zoom
+- Added `broadcastOwnViewport()` to SessionManager/ViewportSync for all users to share position
+- Label pool pattern used in MinimapRenderer for efficient text rendering
 
 **Deferred:**
 - [ ] "Share my viewport" toggle in settings UI
