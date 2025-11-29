@@ -1,6 +1,9 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
-import type { CollaborativeViewportState, ParticipantViewport } from "../../lib/collaboration/types";
+import type {
+	CollaborativeViewportState,
+	ParticipantViewport,
+} from "../../lib/collaboration/types";
 import { DEBUG } from "../../lib/config";
 import { KeyboardShortcutManager } from "../../lib/keyboard/KeyboardShortcutManager";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
@@ -56,7 +59,8 @@ function registerKeyboardShortcuts(): void {
 			key: "KeyL",
 			callback: () => {
 				layerPanelVisible = !layerPanelVisible;
-				if (DEBUG) console.log(`[ViewerCanvas] Layer panel ${layerPanelVisible ? "shown" : "hidden"}`);
+				if (DEBUG)
+					console.log(`[ViewerCanvas] Layer panel ${layerPanelVisible ? "shown" : "hidden"}`);
 			},
 			description: "Toggle layer panel",
 		},

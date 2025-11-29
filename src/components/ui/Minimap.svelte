@@ -15,7 +15,13 @@ interface Props {
 	onNavigate?: (worldX: number, worldY: number, scale?: number) => void;
 }
 
-const { visible = true, document, viewportBounds, participantViewports = [], onNavigate }: Props = $props();
+const {
+	visible = true,
+	document,
+	viewportBounds,
+	participantViewports = [],
+	onNavigate,
+}: Props = $props();
 
 // Z-index for this panel
 const zIndex = getPanelZIndex("minimap");
