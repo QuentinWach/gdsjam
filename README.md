@@ -16,7 +16,7 @@
 
 ## Overview
 
-GDSJam is a client-side web application for viewing GDSII files directly in the browser. Built for academics, chip design newcomers, and the photonics community to promote open-source EDA culture.
+GDSJam is a client-side web application for viewing GDSII and DXF files directly in the browser. Built for academics, chip design newcomers, and the photonics community to promote open-source EDA culture.
 
 
 ## Screenshots
@@ -30,13 +30,12 @@ GDSJam is a client-side web application for viewing GDSII files directly in the 
 
 ## Features
 
-- Client-side GDSII file rendering with WebGL acceleration
-- Interactive zoom, pan, and navigation controls
-- Layer visibility controls with color customization
-- Cell hierarchy navigation
-- Performance optimized for large files (LOD rendering, viewport culling)
-- Dark mode interface
-- Mobile-friendly touch controls
+- **GDSII/DXF viewing** with WebGL acceleration
+- **LOD rendering** with polygon budgeting for large files
+- **Layer visibility controls** with sync option
+- **P2P collaboration** via WebRTC + Y.js (shareable sessions, host/viewer model, viewport sync)
+- **Interactive minimap** showing all participants' viewports
+- **Mobile-friendly** with touch controls
 
 ## Technology Stack
 
@@ -68,34 +67,9 @@ pnpm test
 
 ## Architecture
 
-### Renderer Architecture
-
-The renderer is built with a modular architecture where `PixiRenderer` serves as a thin orchestrator coordinating specialized modules:
-
-```
-PixiRenderer (orchestrator)
-├── InputController
-│   ├── MouseController - Wheel zoom, pan, coordinates
-│   ├── KeyboardController - Arrow keys, shortcuts
-│   └── TouchController - Touch pan, pinch zoom
-├── ViewportManager - Viewport culling, visibility
-├── LODManager - Level of Detail optimization
-├── ZoomLimits - Zoom constraints (1nm to 1m scale bar)
-├── GDSRenderer - Document rendering, polygon batching
-└── UI Overlays
-    ├── FPSCounter
-    ├── CoordinatesDisplay
-    ├── GridOverlay
-    └── ScaleBarOverlay
-```
-
-### Key Design Principles
-
-- **Coordinate System**: Micrometers (µm) with Y-up Cartesian convention (GDSII standard)
-- **Rendering Strategy**: Level-of-Detail (LOD) rendering with polygon budgeting
-- **Spatial Indexing**: R-tree for efficient viewport culling
-- **Performance**: Viewport culling, spatial tiling, incremental re-rendering
-- **Modularity**: Single-responsibility modules with clear interfaces
+- **Coordinate System**: Database units with Y-up Cartesian convention (typically µm, but depends on file)
+- **Rendering**: LOD with polygon budgeting, R-tree spatial indexing for viewport culling
+- **Collaboration**: Y.js CRDT with WebRTC, host as ground truth (localStorage), viewers sync via signaling server
 
 ## Acknowledgments
 
@@ -105,11 +79,6 @@ This project uses the following open-source libraries:
 - **[Pixi.js](https://pixijs.com/)** - WebGL rendering engine (MIT)
 - **[rbush](https://github.com/mourner/rbush)** - High-performance R-tree spatial index by Vladimir Agafonkin (MIT)
 - **[Svelte](https://svelte.dev/)** - Reactive UI framework (MIT)
-
-## Documentation
-
-See `DevLog/` directory for detailed planning and implementation notes.
-
 
 ## Privacy
 
