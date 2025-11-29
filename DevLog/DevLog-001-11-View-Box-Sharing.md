@@ -232,6 +232,33 @@ Minimap component showing layout overview for navigation.
 - [x] Persist minimap size/position in localStorage
 - [x] Event-based subscription for layer visibility/color changes via layerStore
 
+**Bug Fixes (2025-11-29):**
+
+1. **Panel position not updating on browser resize**
+   - Symptom: Minimap could move completely out of view when resizing browser window
+   - Fix: Added `constrainPosition()` function and `window.resize` event listener to keep panel within viewport bounds
+
+2. **Touch drag not working on mobile**
+   - Symptom: Could not drag minimap panel on touch devices
+   - Fix: Added `handleHeaderTouchStart()`, `handleTouchMove()`, and `handleResizeTouchStart()` touch event handlers
+
+3. **Nothing rendering in minimap**
+   - Symptom: Grey canvas with no visible layout
+   - Root cause: Polygon points are `Point[]` objects with `.x` and `.y` properties, but code was treating them as flat arrays
+   - Fix: Updated polygon rendering to access `point.x` and `point.y` correctly
+
+4. **Canvas resize working but layout stretched**
+   - Symptom: When resizing minimap panel, the canvas element resized but layout was distorted
+   - Fix: Added explicit `canvas.width` and `canvas.height` updates in `resize()` function before calling PixiJS resize
+
+5. **Viewport outline not visible**
+   - Symptom: Red viewport rectangle never appeared on minimap
+   - Root cause: `setOnViewportChanged()` callback was only set up inside `setupViewportSync()` which only runs when in a collaboration session
+   - Fix: Moved viewport callback setup to main `$effect` so it runs regardless of session state; also initialize `viewportBounds` immediately after setting up callback
+
+**Known Issues:**
+- [ ] Minimap layout does not scale to fill canvas when panel is resized - `fitToView()` uses `this.canvas.width/height` but scale is not recalculating correctly after resize
+
 **Deferred:**
 - [ ] Polygon-level LOD culling (cell-level is sufficient for MVP)
 - [ ] Instant hide when resized below minimum (current min is 100px)

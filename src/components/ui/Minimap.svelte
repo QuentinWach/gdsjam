@@ -29,7 +29,7 @@ let resizeStart = $state({ width: 0, height: 0, x: 0, y: 0 });
 
 // Canvas and renderer
 const canvasElement: HTMLCanvasElement | null = $state(null);
-let minimapRenderer: MinimapRenderer | null = null;
+let minimapRenderer: MinimapRenderer | null = $state(null);
 let lastLayerVersion = 0;
 
 // Constants
@@ -235,15 +235,26 @@ function toggleCollapse() {
 async function initRenderer() {
 	if (!canvasElement || minimapRenderer) return;
 
-	minimapRenderer = new MinimapRenderer();
-	await minimapRenderer.init(canvasElement);
-	minimapRenderer.setOnNavigate((worldX, worldY) => {
+	const newRenderer = new MinimapRenderer();
+	await newRenderer.init(canvasElement);
+	newRenderer.setOnNavigate((worldX, worldY) => {
 		onNavigate?.(worldX, worldY);
 	});
+
+	// Resize to match current panel size
+	newRenderer.resize(panelSize.width, panelSize.height);
+
+	// Assign to reactive state AFTER setup is complete
+	minimapRenderer = newRenderer;
 
 	// Render if document is available
 	if (document) {
 		await renderMinimap();
+	}
+
+	// Update viewport outline with current bounds
+	if (viewportBounds) {
+		minimapRenderer.updateViewportOutline(viewportBounds);
 	}
 }
 
@@ -265,14 +276,18 @@ async function renderMinimap() {
 
 // Update viewport outline (this is cheap, runs on every viewport change)
 $effect(() => {
-	// Always log to debug
-	console.log("[Minimap] Viewport effect:", {
-		hasRenderer: !!minimapRenderer,
-		hasViewportBounds: !!viewportBounds,
-		viewportBounds,
-	});
-	if (minimapRenderer && viewportBounds) {
-		minimapRenderer.updateViewportOutline(viewportBounds);
+	// Read viewportBounds at top level to ensure it's tracked as dependency
+	const bounds = viewportBounds;
+
+	if (DEBUG) {
+		console.log("[Minimap] Viewport effect:", {
+			hasRenderer: !!minimapRenderer,
+			hasViewportBounds: !!bounds,
+			viewportBounds: bounds,
+		});
+	}
+	if (minimapRenderer && bounds) {
+		minimapRenderer.updateViewportOutline(bounds);
 	}
 });
 
@@ -298,10 +313,15 @@ $effect(() => {
 });
 
 // Resize renderer when panel size changes
+// Read panelSize at top level to ensure Svelte tracks it as a dependency
 $effect(() => {
-	if (minimapRenderer && !isCollapsed) {
-		minimapRenderer.resize(panelSize.width, panelSize.height);
-		// Re-render after resize
+	const width = panelSize.width;
+	const height = panelSize.height;
+	const collapsed = isCollapsed;
+
+	if (minimapRenderer && !collapsed) {
+		minimapRenderer.resize(width, height);
+		// Re-render after resize to update layout scaling
 		if (document) {
 			renderMinimap();
 		}
@@ -328,15 +348,14 @@ onDestroy(() => {
 });
 </script>
 
-{#if visible}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="minimap-panel"
-		class:collapsed={isCollapsed}
-		style="left: {panelPosition.x}px; top: {panelPosition.y}px; z-index: {$zIndex};"
-		onmousedown={() => panelZIndexStore.bringToFront("minimap")}
-		ontouchstart={() => panelZIndexStore.bringToFront("minimap")}
-	>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="minimap-panel"
+	class:collapsed={isCollapsed}
+	style="left: {panelPosition.x}px; top: {panelPosition.y}px; z-index: {$zIndex}; display: {visible ? 'block' : 'none'};"
+	onmousedown={() => panelZIndexStore.bringToFront("minimap")}
+	ontouchstart={() => panelZIndexStore.bringToFront("minimap")}
+>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="panel-header"
@@ -351,23 +370,21 @@ onDestroy(() => {
 			</button>
 		</div>
 
-		{#if !isCollapsed}
-			<div class="minimap-content" style="width: {panelSize.width}px; height: {panelSize.height}px;">
-				<canvas
-					bind:this={canvasElement}
-					width={panelSize.width}
-					height={panelSize.height}
-				></canvas>
-			</div>
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				class="resize-handle"
-				onmousedown={handleResizeMouseDown}
-				ontouchstart={handleResizeTouchStart}
-			></div>
-		{/if}
+		<div class="minimap-content" style="width: {panelSize.width}px; height: {panelSize.height}px; display: {isCollapsed ? 'none' : 'block'};">
+			<canvas
+				bind:this={canvasElement}
+				width={panelSize.width}
+				height={panelSize.height}
+			></canvas>
+		</div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="resize-handle"
+			style="display: {isCollapsed ? 'none' : 'block'};"
+			onmousedown={handleResizeMouseDown}
+			ontouchstart={handleResizeTouchStart}
+		></div>
 	</div>
-{/if}
 
 <style>
 	.minimap-panel {

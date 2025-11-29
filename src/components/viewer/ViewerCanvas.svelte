@@ -199,6 +199,8 @@ $effect(() => {
 					setTimeout(() => gdsStore.setRendering(false), 500);
 				}
 			});
+			// Update viewport bounds after render completes (for minimap)
+			viewportBounds = renderer?.getPublicViewportBounds() ?? null;
 		})();
 	}
 });
