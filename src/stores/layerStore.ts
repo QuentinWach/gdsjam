@@ -1,6 +1,7 @@
 /**
  * Layer Visibility Store - Manages layer visibility state for the UI
  * Syncs with gdsStore for the actual layer visibility data
+ * Provides updateVersion for triggering minimap re-renders
  */
 
 import { writable } from "svelte/store";
@@ -10,30 +11,41 @@ interface LayerVisibility {
 	[key: string]: boolean; // key: "layer:datatype"
 }
 
+interface LayerColors {
+	[key: string]: number; // key: "layer:datatype", value: hex color as number
+}
+
 interface LayerStoreState {
 	visibility: LayerVisibility;
+	colors: LayerColors;
 	syncEnabled: boolean; // Whether to sync with other users (for future collaboration)
+	updateVersion: number; // Increments on any change (for triggering minimap re-renders)
 }
 
 function createLayerStore() {
 	const { subscribe, set, update } = writable<LayerStoreState>({
 		visibility: {},
+		colors: {},
 		syncEnabled: false, // Default: local only
+		updateVersion: 0,
 	});
 
 	return {
 		subscribe,
 
 		/**
-		 * Initialize layer visibility from GDS document layers
+		 * Initialize layer visibility and colors from GDS document layers
 		 */
 		setLayers: (layers: Map<string, Layer>) => {
 			update((state) => {
 				const visibility: LayerVisibility = {};
+				const colors: LayerColors = {};
 				for (const [key, layer] of layers) {
 					visibility[key] = layer.visible;
+					// Convert hex string to number (e.g., "#ff0000" -> 0xff0000)
+					colors[key] = parseInt(layer.color.replace("#", ""), 16);
 				}
-				return { ...state, visibility };
+				return { ...state, visibility, colors, updateVersion: state.updateVersion + 1 };
 			});
 		},
 
@@ -47,6 +59,35 @@ function createLayerStore() {
 					...state.visibility,
 					[key]: !state.visibility[key],
 				},
+				updateVersion: state.updateVersion + 1,
+			}));
+		},
+
+		/**
+		 * Set visibility of a single layer
+		 */
+		setLayerVisibility: (key: string, visible: boolean) => {
+			update((state) => ({
+				...state,
+				visibility: {
+					...state.visibility,
+					[key]: visible,
+				},
+				updateVersion: state.updateVersion + 1,
+			}));
+		},
+
+		/**
+		 * Set color of a single layer
+		 */
+		setLayerColor: (key: string, color: number) => {
+			update((state) => ({
+				...state,
+				colors: {
+					...state.colors,
+					[key]: color,
+				},
+				updateVersion: state.updateVersion + 1,
 			}));
 		},
 
@@ -59,7 +100,7 @@ function createLayerStore() {
 				for (const key in newVisibility) {
 					newVisibility[key] = true;
 				}
-				return { ...state, visibility: newVisibility };
+				return { ...state, visibility: newVisibility, updateVersion: state.updateVersion + 1 };
 			});
 		},
 
@@ -72,7 +113,7 @@ function createLayerStore() {
 				for (const key in newVisibility) {
 					newVisibility[key] = false;
 				}
-				return { ...state, visibility: newVisibility };
+				return { ...state, visibility: newVisibility, updateVersion: state.updateVersion + 1 };
 			});
 		},
 
@@ -102,8 +143,24 @@ function createLayerStore() {
 		reset: () => {
 			set({
 				visibility: {},
+				colors: {},
 				syncEnabled: false,
+				updateVersion: 0,
 			});
+		},
+
+		/**
+		 * Get colors as a Map (for renderer compatibility)
+		 */
+		getColorsMap: (state: LayerStoreState): Map<string, number> => {
+			return new Map(Object.entries(state.colors));
+		},
+
+		/**
+		 * Get visibility as a Map (for renderer compatibility)
+		 */
+		getVisibilityMap: (state: LayerStoreState): Map<string, boolean> => {
+			return new Map(Object.entries(state.visibility));
 		},
 	};
 }

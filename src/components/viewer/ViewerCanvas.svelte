@@ -6,9 +6,11 @@ import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";
 import { layerStore } from "../../stores/layerStore";
-import type { GDSDocument } from "../../types/gds";
+import type { BoundingBox, GDSDocument } from "../../types/gds";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import LayerPanel from "../ui/LayerPanel.svelte";
+// biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
+import Minimap from "../ui/Minimap.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import MobileControls from "../ui/MobileControls.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
@@ -19,7 +21,11 @@ let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
 let panelsVisible = $state(false);
 let layerPanelVisible = $state(false);
+let minimapVisible = $state(true);
 let layerStoreInitialized = false;
+
+// Minimap state
+let viewportBounds = $state<BoundingBox | null>(null);
 
 // Viewport sync state
 const isHost = $derived($collaborationStore.isHost);
@@ -69,6 +75,12 @@ onMount(() => {
 				console.log(`[ViewerCanvas] Layer panel ${layerPanelVisible ? "shown" : "hidden"}`);
 		}
 
+		// 'M' key to toggle minimap
+		if (e.key === "m" || e.key === "M") {
+			minimapVisible = !minimapVisible;
+			if (DEBUG) console.log(`[ViewerCanvas] Minimap ${minimapVisible ? "shown" : "hidden"}`);
+		}
+
 		// 'O' key to toggle polygon fill mode (Outline)
 		if (e.key === "o" || e.key === "O") {
 			renderer?.toggleFill();
@@ -76,6 +88,20 @@ onMount(() => {
 	};
 
 	window.addEventListener("keydown", handleKeyPress);
+
+	// Set up viewport change callback for minimap (always, regardless of session)
+	renderer?.setOnViewportChanged((viewportState) => {
+		// Update minimap viewport bounds
+		viewportBounds = renderer?.getPublicViewportBounds() ?? null;
+
+		// Broadcast to session if host
+		if (!isInSession || !isHost || !isBroadcasting) return;
+		const sessionManager = collaborationStore.getSessionManager();
+		sessionManager?.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
+	});
+
+	// Initialize viewport bounds immediately
+	viewportBounds = renderer?.getPublicViewportBounds() ?? null;
 
 	return () => {
 		window.removeEventListener("keydown", handleKeyPress);
@@ -131,14 +157,6 @@ function setupViewportSync() {
 		onBroadcastStateChanged: (enabled: boolean, hostId: string | null) => {
 			collaborationStore.handleBroadcastStateChanged(enabled, hostId);
 		},
-	});
-
-	// Set up viewport change callback for broadcasting (host only)
-	renderer.setOnViewportChanged((viewportState) => {
-		if (!isInSession || !isHost || !isBroadcasting) return;
-
-		const sessionManager = collaborationStore.getSessionManager();
-		sessionManager?.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
 	});
 
 	// Set up blocked callback for showing toast when user tries to interact while following
@@ -217,17 +235,36 @@ $effect(() => {
 		setupViewportSync();
 	}
 });
+
+// Handle minimap navigation (click-to-navigate)
+function handleMinimapNavigate(worldX: number, worldY: number) {
+	if (!renderer) return;
+	renderer.setViewportCenter(worldX, worldY);
+}
+
+// Toggle minimap visibility
+function toggleMinimap() {
+	minimapVisible = !minimapVisible;
+}
 </script>
 
 <div class="viewer-container">
 	<canvas bind:this={canvas} class="viewer-canvas"></canvas>
 	<PerformancePanel {renderer} statistics={$gdsStore.statistics} visible={panelsVisible} />
 	<LayerPanel statistics={$gdsStore.statistics} visible={layerPanelVisible} />
+	<Minimap
+		visible={minimapVisible}
+		document={$gdsStore.document}
+		{viewportBounds}
+		onNavigate={handleMinimapNavigate}
+	/>
 	<MobileControls
 		{renderer}
 		onTogglePerformance={() => { panelsVisible = !panelsVisible; }}
 		onToggleLayers={() => { layerPanelVisible = !layerPanelVisible; }}
+		onToggleMinimap={toggleMinimap}
 		performanceVisible={panelsVisible}
+		minimapVisible={minimapVisible}
 		layersVisible={layerPanelVisible}
 	/>
 

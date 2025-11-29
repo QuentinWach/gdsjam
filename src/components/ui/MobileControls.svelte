@@ -5,12 +5,21 @@ interface Props {
 	renderer: PixiRenderer | null;
 	onTogglePerformance: () => void;
 	onToggleLayers: () => void;
+	onToggleMinimap?: () => void;
 	performanceVisible: boolean;
 	layersVisible: boolean;
+	minimapVisible?: boolean;
 }
 
-const { renderer, onTogglePerformance, onToggleLayers, performanceVisible, layersVisible }: Props =
-	$props();
+const {
+	renderer,
+	onTogglePerformance,
+	onToggleLayers,
+	onToggleMinimap,
+	performanceVisible,
+	layersVisible,
+	minimapVisible = true,
+}: Props = $props();
 
 let menuOpen = $state(false);
 
@@ -40,6 +49,11 @@ function handleTogglePerformance() {
 
 function handleToggleLayers() {
 	onToggleLayers();
+	menuOpen = false;
+}
+
+function handleToggleMinimap() {
+	onToggleMinimap?.();
 	menuOpen = false;
 }
 </script>
@@ -96,6 +110,15 @@ function handleToggleLayers() {
 					<rect x="3" y="14" width="7" height="7"/>
 				</svg>
 				<span>Grid</span>
+			</button>
+
+			<!-- Minimap Toggle -->
+			<button class="menu-item" onclick={handleToggleMinimap} class:active={minimapVisible} title="Toggle Minimap (M)">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<rect x="3" y="3" width="18" height="18" rx="2"/>
+					<rect x="13" y="13" width="6" height="6" rx="1"/>
+				</svg>
+				<span>Minimap</span>
 			</button>
 		</div>
 	{/if}

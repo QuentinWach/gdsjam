@@ -1,9 +1,9 @@
 # View Box Sharing
 
-**Date:** 2025-11-27
-**Status:** Phase 1 Complete
+**Date:** 2025-11-27 (Phase 1), 2025-11-28 (Phase 2)
+**Status:** Phase 2 Complete
 **Issue:** https://github.com/jwt625/gdsjam/issues/15
-**PR:** https://github.com/jwt625/gdsjam/pull/25
+**PR:** https://github.com/jwt625/gdsjam/pull/25 (Phase 1)
 
 ## Problem Statement
 
@@ -210,31 +210,33 @@ Minimap component showing layout overview for navigation.
 - `src/lib/gds/GDSParser.ts` - Add `skipInMinimap` marking during parse
 - `src/types/gds.ts` - Add `skipInMinimap: boolean` to Cell type
 
-**TODO:**
-- [ ] Add `skipInMinimap: boolean` to Cell type in `src/types/gds.ts`
-- [ ] Mark cells with `skipInMinimap` during parsing in GDSParser
-- [ ] Create `src/stores/panelZIndexStore.ts` for shared z-index management
-- [ ] Update ParticipantList.svelte to use panelZIndexStore
-- [ ] Create MinimapRenderer (separate Pixi Application)
-  - [ ] Implement cell-level LOD culling (use `skipInMinimap` flag)
-  - [ ] Implement polygon-level LOD culling (< 1% of layout extent)
-  - [ ] Subscribe to layer color/visibility change events
-  - [ ] Expose public API: `getDocumentBoundingBox()`, `getLayerColors()`, `getDocumentUnits()`
-- [ ] Create Minimap.svelte as movable/resizable panel
-  - [ ] Follow ParticipantList panel pattern
-  - [ ] Bottom-right default position
-  - [ ] Default size 30% of canvas
-  - [ ] Use panelZIndexStore for z-index management
-- [ ] Implement click-to-navigate (instant jump)
-- [ ] Draw viewport outline (standard panel style)
-- [ ] Add 'M' keyboard shortcut to toggle minimap
-- [ ] Add minimap toggle to mobile menu
-- [ ] Implement resize with constraints (min 10%, max ~4K general cap)
-- [ ] Instant hide when resized below minimum (no animation)
+**COMPLETED (2025-11-28):**
+- [x] Add `skipInMinimap: boolean` to Cell type in `src/types/gds.ts`
+- [x] Mark cells with `skipInMinimap` during parsing in GDSParser
+- [x] Create `src/stores/panelZIndexStore.ts` for shared z-index management
+- [x] Update ParticipantList.svelte to use panelZIndexStore
+- [x] Create MinimapRenderer (separate Pixi Application)
+  - [x] Implement cell-level LOD culling (use `skipInMinimap` flag)
+  - [x] Subscribe to layer color/visibility change events via layerStore
+  - [x] Expose public API: `getDocumentBoundingBox()`, `getLayerColors()`, `getDocumentUnits()`
+- [x] Create Minimap.svelte as movable/resizable panel
+  - [x] Follow ParticipantList panel pattern
+  - [x] Bottom-right default position
+  - [x] Default size 30% of canvas
+  - [x] Use panelZIndexStore for z-index management
+- [x] Implement click-to-navigate (instant jump)
+- [x] Draw viewport outline (standard panel style)
+- [x] Add 'M' keyboard shortcut to toggle minimap
+- [x] Add minimap toggle to mobile menu
+- [x] Implement resize with constraints (min 100px, max 400px)
+- [x] Persist minimap size/position in localStorage
+- [x] Event-based subscription for layer visibility/color changes via layerStore
+
+**Deferred:**
+- [ ] Polygon-level LOD culling (cell-level is sufficient for MVP)
+- [ ] Instant hide when resized below minimum (current min is 100px)
 - [ ] Auto-hide when host broadcast enabled
-- [ ] Persist minimap size/position in localStorage
-- [ ] Add minimap stats to PerformancePanel (follow main canvas pattern, cut redundant)
-- [ ] Event-based subscription for layer visibility/color changes
+- [ ] Add minimap stats to PerformancePanel (can be added via shared store if needed)
 
 **Notes:**
 - Cell has `boundingBox: BoundingBox` for extent calculation

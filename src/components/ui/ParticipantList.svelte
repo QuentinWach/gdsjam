@@ -1,12 +1,16 @@
 <script lang="ts">
 import { DEBUG } from "../../lib/config";
 import { collaborationStore } from "../../stores/collaborationStore";
+import { getPanelZIndex, panelZIndexStore } from "../../stores/panelZIndexStore";
 
 interface Props {
 	visible?: boolean;
 }
 
 const { visible = true }: Props = $props();
+
+// Z-index for this panel
+const zIndex = getPanelZIndex("participants");
 
 // Local state for confirmation dialog
 let showTransferConfirm = $state(false);
@@ -151,7 +155,8 @@ function cancelTransfer() {
 		class="participant-list"
 		class:collapsed={isCollapsed}
 		class:dragging={isDragging}
-		style="left: {panelPosition.x}px; top: {panelPosition.y}px;"
+		style="left: {panelPosition.x}px; top: {panelPosition.y}px; z-index: {$zIndex};"
+		onmousedown={() => panelZIndexStore.bringToFront("participants")}
 	>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
@@ -256,7 +261,7 @@ function cancelTransfer() {
 		border-radius: 4px;
 		font-family: monospace;
 		font-size: 12px;
-		z-index: 1000;
+		/* z-index set via inline style from panelZIndexStore */
 		display: flex;
 		flex-direction: column;
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
