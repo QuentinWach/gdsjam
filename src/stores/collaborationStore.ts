@@ -125,25 +125,64 @@ function createCollaborationStore() {
 
 		/**
 		 * Create a new collaboration session
+		 * If there's a pending file stored locally, it will be uploaded during session creation
 		 */
-		createSession: () => {
-			update((state) => {
-				if (!state.sessionManager) return state;
+		createSession: async () => {
+			if (!sessionManager) {
+				console.error("[collaborationStore] Session manager not initialized");
+				return;
+			}
 
-				const sessionId = state.sessionManager.createSession();
+			// Check if there's a pending file that needs to be uploaded
+			const hasPending = sessionManager.hasPendingFile();
+
+			if (hasPending) {
+				// Show upload progress during session creation
+				update((state) => ({
+					...state,
+					isTransferring: true,
+					fileTransferProgress: 0,
+					fileTransferMessage: "Creating session...",
+				}));
+			}
+
+			try {
+				const sessionId = await sessionManager.createSession(
+					hasPending
+						? (progress: number, message: string) => {
+								update((state) => ({
+									...state,
+									fileTransferProgress: progress,
+									fileTransferMessage: message,
+								}));
+							}
+						: undefined,
+				);
 
 				if (DEBUG) {
 					console.log("[collaborationStore] Created session:", sessionId);
 				}
 
-				return {
+				update((state) => ({
 					...state,
 					isInSession: true,
 					sessionId,
 					isHost: true,
-					connectedUsers: state.sessionManager.getConnectedUsers(),
-				};
-			});
+					isTransferring: false,
+					fileTransferProgress: 0,
+					fileTransferMessage: "",
+					connectedUsers: sessionManager.getConnectedUsers(),
+				}));
+			} catch (error) {
+				console.error("[collaborationStore] Failed to create session:", error);
+				update((state) => ({
+					...state,
+					isTransferring: false,
+					fileTransferProgress: 0,
+					fileTransferMessage: "",
+				}));
+				throw error;
+			}
 		},
 
 		/**
@@ -433,58 +472,22 @@ function createCollaborationStore() {
 		},
 
 		/**
-		 * Upload file as pending (before session creation)
+		 * Store file locally for future session creation (NO server upload)
+		 * The file will be uploaded when createSession() is called
+		 *
+		 * This ensures no server communication happens until a session is actually created,
+		 * maintaining the "pure frontend-only viewer" principle when not in a session.
 		 */
-		uploadFilePending: async (arrayBuffer: ArrayBuffer, fileName: string) => {
-			const getManager = (): SessionManager => {
-				let mgr: SessionManager | null = null;
-				update((state) => {
-					mgr = state.sessionManager;
-					return state;
-				});
-				if (!mgr) {
-					throw new Error("Session manager not initialized");
-				}
-				return mgr;
-			};
+		storePendingFile: (arrayBuffer: ArrayBuffer, fileName: string) => {
+			if (!sessionManager) {
+				throw new Error("Session manager not initialized");
+			}
 
-			const manager = getManager();
+			// Store locally only - no server communication, no loading indicator
+			sessionManager.storePendingFile(arrayBuffer, fileName);
 
-			update((state) => ({
-				...state,
-				isTransferring: true,
-				fileTransferProgress: 0,
-				fileTransferMessage: "Uploading file...",
-			}));
-
-			try {
-				await manager.uploadFilePending(
-					arrayBuffer,
-					fileName,
-					(progress: number, message: string) => {
-						update((state) => ({
-							...state,
-							fileTransferProgress: progress,
-							fileTransferMessage: message,
-						}));
-					},
-				);
-
-				update((state) => ({
-					...state,
-					isTransferring: false,
-					fileTransferProgress: 100,
-					fileTransferMessage: "File ready, create session to share",
-				}));
-			} catch (error) {
-				console.error("[collaborationStore] Pending file upload failed:", error);
-				update((state) => ({
-					...state,
-					isTransferring: false,
-					fileTransferProgress: 0,
-					fileTransferMessage: "",
-				}));
-				throw error;
+			if (DEBUG) {
+				console.log("[collaborationStore] File stored locally for future session");
 			}
 		},
 

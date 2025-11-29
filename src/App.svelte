@@ -59,21 +59,22 @@ async function handleGlobalFileInput(event: Event) {
 				);
 			}
 		} else if (!$collaborationStore.isInSession) {
-			// Not in a session - upload as pending so it can be shared when session is created
+			// Not in a session - store locally only (NO server upload)
+			// File will be uploaded when session is created
 			if (DEBUG) {
-				console.log("[App] Uploading file as pending (for future session)...");
+				console.log("[App] Storing file locally for future session...");
 			}
 
 			try {
-				await collaborationStore.uploadFilePending(arrayBuffer, file.name);
+				collaborationStore.storePendingFile(arrayBuffer, file.name);
 				if (DEBUG) {
-					console.log("[App] File uploaded as pending successfully");
+					console.log("[App] File stored locally for future session");
 				}
 			} catch (error) {
-				console.error("[App] Failed to upload pending file:", error);
+				console.error("[App] Failed to store pending file:", error);
 				// Don't show error - file is loaded locally, just won't be shareable
 				if (DEBUG) {
-					console.log("[App] File loaded locally but not uploaded for sharing");
+					console.log("[App] File loaded locally but not stored for sharing");
 				}
 			}
 		}

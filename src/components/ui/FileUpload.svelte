@@ -22,7 +22,7 @@ let loadingExampleId: string | null = $state(null);
 /**
  * Sync file to collaboration session
  * - If in session as host: upload file to session for immediate sync
- * - If not in session: upload as pending for future session creation
+ * - If not in session: store locally for future session creation (NO server upload)
  * - If in session as viewer: do nothing (viewers don't upload)
  *
  * @throws CollaborationSyncError if sync fails (file is still loaded locally)
@@ -50,21 +50,22 @@ async function syncFileToCollaboration(arrayBuffer: ArrayBuffer, fileName: strin
 			throw new CollaborationSyncError(error instanceof Error ? error.message : String(error));
 		}
 	} else if (!$collaborationStore.isInSession) {
-		// Not in a session - upload as pending so it can be shared when session is created
+		// Not in a session - store locally only (NO server upload)
+		// File will be uploaded when session is created
 		if (DEBUG) {
-			console.log("[FileUpload] Uploading file as pending (for future session)...");
+			console.log("[FileUpload] Storing file locally for future session...");
 		}
 
 		try {
-			await collaborationStore.uploadFilePending(arrayBuffer, fileName);
+			collaborationStore.storePendingFile(arrayBuffer, fileName);
 			if (DEBUG) {
-				console.log("[FileUpload] File uploaded as pending successfully");
+				console.log("[FileUpload] File stored locally for future session");
 			}
 		} catch (error) {
-			console.error("[FileUpload] Failed to upload pending file:", error);
+			console.error("[FileUpload] Failed to store pending file:", error);
 			// Don't throw - file is loaded locally, just won't be shareable
 			if (DEBUG) {
-				console.log("[FileUpload] File loaded locally but not uploaded for sharing");
+				console.log("[FileUpload] File loaded locally but not stored for sharing");
 			}
 		}
 	} else if (DEBUG) {

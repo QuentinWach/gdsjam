@@ -39,10 +39,11 @@ interface StoredSessionInfo {
 }
 
 // Pending file info for "upload first, then create session" workflow
+// Note: fileId and fileHash are null until file is uploaded to server during createSession()
 interface PendingFile {
-	fileId: string;
+	fileId: string | null;
 	fileName: string;
-	fileHash: string;
+	fileHash: string | null;
 	fileSize: number;
 	arrayBuffer: ArrayBuffer;
 }
@@ -91,10 +92,54 @@ export class SessionManager {
 	/**
 	 * Create a new session
 	 * Returns the session ID (room name)
+	 * If there's a pending file stored locally, it will be uploaded to the server first
 	 */
-	createSession(): string {
+	async createSession(onProgress?: (progress: number, message: string) => void): Promise<string> {
 		const sessionId = generateUUID();
 		this.sessionId = sessionId;
+
+		// If there's a pending file stored locally, upload it to server now
+		if (this.pendingFile && this.pendingFile.arrayBuffer) {
+			if (DEBUG) {
+				console.log(
+					"[SessionManager] Uploading pending file to server:",
+					this.pendingFile.fileName,
+				);
+			}
+
+			onProgress?.(0, "Uploading file to server...");
+
+			// Upload file to server
+			const fileServerUrl = import.meta.env.VITE_FILE_SERVER_URL || "https://signaling.gdsjam.com";
+			const fileServerToken = import.meta.env.VITE_FILE_SERVER_TOKEN;
+
+			const formData = new FormData();
+			formData.append("file", new Blob([this.pendingFile.arrayBuffer]));
+
+			const response = await fetch(`${fileServerUrl}/api/files`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${fileServerToken}`,
+				},
+				body: formData,
+			});
+
+			if (!response.ok) {
+				throw new Error(`File upload failed: ${response.status} ${response.statusText}`);
+			}
+
+			const { fileId } = await response.json();
+
+			// Update pending file with server-assigned IDs
+			this.pendingFile.fileId = fileId;
+			this.pendingFile.fileHash = fileId; // fileId is the SHA-256 hash
+
+			onProgress?.(50, "Creating session...");
+
+			if (DEBUG) {
+				console.log("[SessionManager] Pending file uploaded:", fileId);
+			}
+		}
 
 		// Update URL with room parameter
 		const url = new URL(window.location.href);
@@ -136,8 +181,8 @@ export class SessionManager {
 			};
 			sessionMap.set("participants", [hostParticipant]);
 
-			// If there's a pending file (uploaded before session creation), add its metadata
-			if (this.pendingFile) {
+			// If there's a pending file (now uploaded), add its metadata
+			if (this.pendingFile && this.pendingFile.fileId && this.pendingFile.fileHash) {
 				sessionMap.set("fileId", this.pendingFile.fileId);
 				sessionMap.set("fileName", this.pendingFile.fileName);
 				sessionMap.set("fileSize", this.pendingFile.fileSize);
@@ -159,7 +204,7 @@ export class SessionManager {
 		this.participantManager.setLocalAwarenessState({ isHost: true });
 
 		// Store the pending file buffer for potential re-sharing, save to localStorage, then clear pending state
-		if (this.pendingFile) {
+		if (this.pendingFile && this.pendingFile.fileId && this.pendingFile.fileHash) {
 			// Save session to localStorage for recovery after refresh
 			this.saveSessionToLocalStorage(
 				this.pendingFile.fileId,
@@ -171,6 +216,8 @@ export class SessionManager {
 			this.pendingFile = null;
 		}
 
+		onProgress?.(100, "Session created");
+
 		if (DEBUG) {
 			console.log("[SessionManager] Created session:", sessionId);
 		}
@@ -179,61 +226,29 @@ export class SessionManager {
 	}
 
 	/**
-	 * Upload a file before creating a session (pending upload)
-	 * The file will be associated with the session when createSession() is called
+	 * Store a file locally for future session creation (NO server upload)
+	 * The file will be uploaded to the server when createSession() is called
+	 *
+	 * This ensures no server communication happens until a session is actually created,
+	 * maintaining the "pure frontend-only viewer" principle when not in a session.
 	 */
-	async uploadFilePending(
-		arrayBuffer: ArrayBuffer,
-		fileName: string,
-		onProgress?: (progress: number, message: string) => void,
-	): Promise<void> {
+	storePendingFile(arrayBuffer: ArrayBuffer, fileName: string): void {
 		if (DEBUG) {
-			console.log(
-				"[SessionManager] Uploading file as pending (before session creation):",
-				fileName,
-			);
+			console.log("[SessionManager] Storing file locally for future session:", fileName);
 		}
 
-		onProgress?.(0, "Uploading file to server...");
-
-		// Upload file to server
-		const fileServerUrl = import.meta.env.VITE_FILE_SERVER_URL || "https://signaling.gdsjam.com";
-		const fileServerToken = import.meta.env.VITE_FILE_SERVER_TOKEN;
-
-		const formData = new FormData();
-		formData.append("file", new Blob([arrayBuffer]));
-
-		const response = await fetch(`${fileServerUrl}/api/files`, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${fileServerToken}`,
-			},
-			body: formData,
-		});
-
-		if (!response.ok) {
-			throw new Error(`File upload failed: ${response.status} ${response.statusText}`);
-		}
-
-		const { fileId } = await response.json();
-
-		// fileId is the SHA-256 hash computed by the server
-		const fileHash = fileId;
-
-		onProgress?.(100, "File uploaded, ready to create session");
-
-		// Store as pending file
+		// Store locally only - NO server upload
+		// fileId and fileHash will be set when createSession() uploads to server
 		this.pendingFile = {
-			fileId,
+			fileId: null,
 			fileName,
-			fileHash,
+			fileHash: null,
 			fileSize: arrayBuffer.byteLength,
 			arrayBuffer,
 		};
 
 		if (DEBUG) {
-			console.log("[SessionManager] Pending file stored:", {
-				fileId,
+			console.log("[SessionManager] Pending file stored locally:", {
 				fileName,
 				fileSize: arrayBuffer.byteLength,
 			});

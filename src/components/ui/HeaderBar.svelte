@@ -17,10 +17,17 @@ let showLeaveDialog = $state(false);
 let participants = $state<YjsParticipant[]>([]);
 let selectedNewHost = $state<string | null>(null);
 
-function handleCreateSession() {
-	collaborationStore.createSession();
-	if (DEBUG) {
-		console.log("[HeaderBar] Session created. Upload a file to share it with peers.");
+async function handleCreateSession() {
+	try {
+		await collaborationStore.createSession();
+		if (DEBUG) {
+			console.log("[HeaderBar] Session created. Upload a file to share it with peers.");
+		}
+	} catch (error) {
+		console.error("[HeaderBar] Failed to create session:", error);
+		gdsStore.setError(
+			`Failed to create session: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }
 
@@ -175,18 +182,19 @@ async function handleFileInput(event: Event) {
 				);
 			}
 		} else if (!$collaborationStore.isInSession) {
-			// Not in a session - upload as pending so it can be shared when session is created
+			// Not in a session - store locally only (NO server upload)
+			// File will be uploaded when session is created
 			if (DEBUG) {
-				console.log("[HeaderBar] Uploading file as pending (for future session)...");
+				console.log("[HeaderBar] Storing file locally for future session...");
 			}
 
 			try {
-				await collaborationStore.uploadFilePending(arrayBuffer, file.name);
+				collaborationStore.storePendingFile(arrayBuffer, file.name);
 				if (DEBUG) {
-					console.log("[HeaderBar] File uploaded as pending successfully");
+					console.log("[HeaderBar] File stored locally for future session");
 				}
 			} catch (error) {
-				console.error("[HeaderBar] Failed to upload pending file:", error);
+				console.error("[HeaderBar] Failed to store pending file:", error);
 				// Don't show error - file is loaded locally, just won't be shareable
 			}
 		}
