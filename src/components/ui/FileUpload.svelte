@@ -230,24 +230,34 @@ function triggerFileInput() {
 						disabled={loadingExampleId !== null}
 						onclick={(e) => handleExampleClick(example, e)}
 					>
-						<div class="example-icon">
-							{#if example.category === 'photonics'}
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-									<circle cx="12" cy="12" r="3" stroke-width="2"/>
-									<path stroke-width="2" d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-								</svg>
-							{:else if example.category === 'digital'}
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-									<rect x="4" y="4" width="16" height="16" rx="2" stroke-width="2"/>
-									<path stroke-width="2" d="M9 9h6M9 12h6M9 15h4"/>
-								</svg>
-							{:else}
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-									<rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2"/>
-									<path stroke-width="2" d="M3 9h18M9 21V9"/>
-								</svg>
-							{/if}
-						</div>
+						{#if example.previewOverviewUrl}
+							<div class="example-preview">
+								<img
+									src={example.previewOverviewUrl}
+									alt={example.name}
+									loading="lazy"
+								/>
+							</div>
+						{:else}
+							<div class="example-icon">
+								{#if example.category === 'photonics'}
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<circle cx="12" cy="12" r="3" stroke-width="2"/>
+										<path stroke-width="2" d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+									</svg>
+								{:else if example.category === 'digital'}
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<rect x="4" y="4" width="16" height="16" rx="2" stroke-width="2"/>
+										<path stroke-width="2" d="M9 9h6M9 12h6M9 15h4"/>
+									</svg>
+								{:else}
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2"/>
+										<path stroke-width="2" d="M3 9h18M9 21V9"/>
+									</svg>
+								{/if}
+							</div>
+						{/if}
 						<div class="example-info">
 							<span class="example-name">{example.name}</span>
 							<span class="example-desc">{example.description}</span>
@@ -364,15 +374,15 @@ function triggerFileInput() {
 
 	.examples-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 		gap: 0.75rem;
 	}
 
 	.example-card {
 		display: flex;
-		align-items: flex-start;
-		gap: 0.75rem;
-		padding: 0.75rem;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0;
 		background: #1a1a1a;
 		border: 1px solid #333;
 		border-radius: 8px;
@@ -396,16 +406,33 @@ function triggerFileInput() {
 		border-color: #4a9eff;
 	}
 
+	.example-preview {
+		width: 100%;
+		aspect-ratio: 3 / 2;
+		background: #111;
+		overflow: hidden;
+	}
+
+	.example-preview img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
 	.example-icon {
 		flex-shrink: 0;
-		width: 32px;
-		height: 32px;
+		width: 100%;
+		height: 80px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #111;
 		color: #4a9eff;
 	}
 
 	.example-icon svg {
-		width: 100%;
-		height: 100%;
+		width: 40px;
+		height: 40px;
 	}
 
 	.example-info {
@@ -413,6 +440,7 @@ function triggerFileInput() {
 		flex-direction: column;
 		gap: 0.125rem;
 		min-width: 0;
+		padding: 0.5rem 0.75rem 0.75rem;
 	}
 
 	.example-name {
@@ -466,16 +494,27 @@ function triggerFileInput() {
 	/* Mobile-first responsive adjustments */
 	@media (max-width: 480px) {
 		.examples-grid {
-			grid-template-columns: 1fr;
+			grid-template-columns: 1fr 1fr;
 		}
 
-		.example-card {
-			padding: 0.625rem;
+		.example-preview {
+			aspect-ratio: 4 / 3;
 		}
 
 		.example-icon {
-			width: 28px;
-			height: 28px;
+			height: 60px;
+		}
+
+		.example-info {
+			padding: 0.375rem 0.5rem 0.5rem;
+		}
+
+		.example-name {
+			font-size: 0.75rem;
+		}
+
+		.example-desc {
+			font-size: 0.625rem;
 		}
 	}
 </style>

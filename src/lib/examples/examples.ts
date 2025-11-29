@@ -13,6 +13,11 @@ import type { Example } from "./types";
 export const EXAMPLES_BASE_URL = "https://huggingface.co/datasets/jwt625/gdsii/resolve/main";
 
 /**
+ * Base URL for preview images (served from public folder)
+ */
+export const PREVIEWS_BASE_URL = "/previews";
+
+/**
  * Curated list of example GDS files
  */
 export const EXAMPLES: Example[] = [
@@ -30,6 +35,7 @@ export const EXAMPLES: Example[] = [
 		url: "https://raw.githubusercontent.com/gdsfactory/ubc/main/ubcpdk/gds/EBeam/ebeam_gc_te1550.gds",
 		fileSizeMB: 0.115,
 		isCompressed: false,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/grating-coupler.png`,
 	},
 
 	{
@@ -43,6 +49,7 @@ export const EXAMPLES: Example[] = [
 		url: "https://raw.githubusercontent.com/gdsfactory/ubc/main/ubcpdk/gds/EBeam/ebeam_y_1550.gds",
 		fileSizeMB: 0.012,
 		isCompressed: false,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/y-splitter.png`,
 	},
 
 	// ============================================
@@ -59,6 +66,7 @@ export const EXAMPLES: Example[] = [
 		url: "https://raw.githubusercontent.com/TinyTapeout/tinytapeout-02/tt02/gds/gatecat_fpga_top.gds.gz",
 		fileSizeMB: 0.7,
 		isCompressed: true,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/tt02-fpga.png`,
 	},
 	{
 		id: "tt02-riscv",
@@ -71,6 +79,7 @@ export const EXAMPLES: Example[] = [
 		url: "https://raw.githubusercontent.com/TinyTapeout/tinytapeout-02/tt02/gds/gregdavill_serv_top.gds.gz",
 		fileSizeMB: 0.55,
 		isCompressed: true,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/tt02-riscv.png`,
 	},
 	{
 		id: "tt02-clock",
@@ -83,6 +92,7 @@ export const EXAMPLES: Example[] = [
 		url: "https://raw.githubusercontent.com/TinyTapeout/tinytapeout-02/tt02/gds/gregdavill_clock_top.gds.gz",
 		fileSizeMB: 0.3,
 		isCompressed: true,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/tt02-clock.png`,
 	},
 
 	// ============================================
@@ -99,6 +109,7 @@ export const EXAMPLES: Example[] = [
 		url: `${EXAMPLES_BASE_URL}/NTNAR04B_100nm_20210714.gds`,
 		fileSizeMB: 0.45,
 		isCompressed: false,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/superconducting-antennas.png`,
 	},
 ];
 

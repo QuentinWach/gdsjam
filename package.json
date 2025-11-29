@@ -29,6 +29,7 @@
     "jsdom": "^27.2.0",
     "lint-staged": "^16.2.6",
     "postcss": "^8.5.6",
+    "puppeteer": "^24.31.0",
     "svelte": "^5.43.5",
     "svelte-check": "^4.3.3",
     "tailwindcss": "^4.1.17",
