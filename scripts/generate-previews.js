@@ -135,11 +135,8 @@ async function main() {
 	const browser = await puppeteer.launch({
 		headless: true,
 		args: ["--no-sandbox", "--disable-setuid-sandbox"],
-		// Use system Chrome if puppeteer's Chrome is not installed
-		executablePath:
-			process.platform === "darwin"
-				? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-				: undefined,
+		// Let puppeteer find Chrome automatically (uses bundled Chromium or system Chrome)
+		// Falls back to PUPPETEER_EXECUTABLE_PATH env var if set
 	});
 
 	try {

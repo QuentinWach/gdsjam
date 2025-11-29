@@ -1,10 +1,18 @@
 <script lang="ts">
 import { DEBUG } from "../../lib/config";
 import type { Example } from "../../lib/examples";
-import { EXAMPLES, loadExample } from "../../lib/examples";
+import { EXAMPLES, ExampleLoadError, loadExample } from "../../lib/examples";
 import { loadGDSIIFromBuffer } from "../../lib/utils/gdsLoader";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";
+
+/** Custom error for collaboration sync failures */
+class CollaborationSyncError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "CollaborationSyncError";
+	}
+}
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Svelte class binding
 let isDragging = $state(false);
@@ -16,6 +24,8 @@ let loadingExampleId: string | null = $state(null);
  * - If in session as host: upload file to session for immediate sync
  * - If not in session: upload as pending for future session creation
  * - If in session as viewer: do nothing (viewers don't upload)
+ *
+ * @throws CollaborationSyncError if sync fails (file is still loaded locally)
  */
 async function syncFileToCollaboration(arrayBuffer: ArrayBuffer, fileName: string): Promise<void> {
 	if (DEBUG) {
@@ -37,8 +47,8 @@ async function syncFileToCollaboration(arrayBuffer: ArrayBuffer, fileName: strin
 			}
 		} catch (error) {
 			console.error("[FileUpload] Failed to upload file to session:", error);
-			gdsStore.setError(
-				`File loaded locally but failed to upload to session: ${error instanceof Error ? error.message : String(error)}`,
+			throw new CollaborationSyncError(
+				error instanceof Error ? error.message : String(error),
 			);
 		}
 	} else if (!$collaborationStore.isInSession) {
@@ -54,7 +64,7 @@ async function syncFileToCollaboration(arrayBuffer: ArrayBuffer, fileName: strin
 			}
 		} catch (error) {
 			console.error("[FileUpload] Failed to upload pending file:", error);
-			// Don't show error - file is loaded locally, just won't be shareable
+			// Don't throw - file is loaded locally, just won't be shareable
 			if (DEBUG) {
 				console.log("[FileUpload] File loaded locally but not uploaded for sharing");
 			}
@@ -93,12 +103,29 @@ async function handleExampleClick(example: Example, event: Event) {
 		}
 
 		// Sync to collaboration session (handles both pre-session and in-session cases)
-		await syncFileToCollaboration(arrayBuffer, fileName);
+		try {
+			await syncFileToCollaboration(arrayBuffer, fileName);
+		} catch (syncError) {
+			// File loaded successfully but sync failed - log warning but don't block user
+			if (syncError instanceof CollaborationSyncError) {
+				console.warn("[FileUpload] Sync failed but file loaded locally:", syncError.message);
+				// Note: File is loaded and viewable locally, sync will be retried on next action
+				// A proper warning toast could be added here in the future
+			} else {
+				throw syncError;
+			}
+		}
 	} catch (error) {
 		console.error("[FileUpload] Failed to load example:", error);
-		gdsStore.setError(
-			`Failed to load example: ${error instanceof Error ? error.message : String(error)}`,
-		);
+
+		// Provide specific error messages based on error type
+		if (error instanceof ExampleLoadError) {
+			gdsStore.setError(`Failed to load example: ${error.message}`);
+		} else {
+			gdsStore.setError(
+				`Failed to load example: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	} finally {
 		loadingExampleId = null;
 	}
