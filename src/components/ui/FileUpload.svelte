@@ -1,7 +1,7 @@
 <script lang="ts">
 import { DEBUG } from "../../lib/config";
-import { EXAMPLES, loadExample } from "../../lib/examples";
 import type { Example } from "../../lib/examples";
+import { EXAMPLES, loadExample } from "../../lib/examples";
 import { loadGDSIIFromBuffer } from "../../lib/utils/gdsLoader";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";

@@ -12,10 +12,10 @@
  * Output: public/previews/{example-id}.png
  */
 
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
-import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -150,10 +150,10 @@ async function main() {
 		await browser.close();
 	}
 
-	console.log("\n" + "=".repeat(50));
+	console.log(`\n${"=".repeat(50)}`);
 	console.log("Preview generation complete!");
 	console.log(`Previews saved to: ${PREVIEWS_DIR}`);
-	console.log("=".repeat(50) + "\n");
+	console.log(`${"=".repeat(50)}\n`);
 }
 
 main().catch(console.error);

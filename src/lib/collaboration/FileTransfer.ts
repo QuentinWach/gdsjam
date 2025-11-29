@@ -81,7 +81,7 @@ export class FileTransfer {
 
 		// Store metadata in Y.js (single transaction)
 		this.ydoc.transact(() => {
-			const sessionMap = this.ydoc.getMap<any>("session");
+			const sessionMap = this.ydoc.getMap<unknown>("session");
 			sessionMap.set("fileId", fileId);
 			sessionMap.set("fileName", fileName);
 			sessionMap.set("fileSize", arrayBuffer.byteLength);
@@ -116,7 +116,7 @@ export class FileTransfer {
 		}
 
 		// Get session metadata
-		const sessionMap = this.ydoc.getMap<any>("session");
+		const sessionMap = this.ydoc.getMap<unknown>("session");
 		const fileId = sessionMap.get("fileId") as string;
 		const fileName = sessionMap.get("fileName") as string;
 		const expectedHash = sessionMap.get("fileHash") as string;
@@ -257,7 +257,7 @@ export class FileTransfer {
 	 * Get current transfer progress
 	 */
 	getProgress(): FileTransferProgress | null {
-		const sessionMap = this.ydoc.getMap<any>("session");
+		const sessionMap = this.ydoc.getMap<unknown>("session");
 		const fileSize = sessionMap.get("fileSize") as number;
 
 		if (!fileSize) {
@@ -277,7 +277,7 @@ export class FileTransfer {
 	 * Check if a file is available in the session
 	 */
 	isFileAvailable(): boolean {
-		const sessionMap = this.ydoc.getMap<any>("session");
+		const sessionMap = this.ydoc.getMap<unknown>("session");
 		return sessionMap.has("fileId");
 	}
 
@@ -285,7 +285,7 @@ export class FileTransfer {
 	 * Get file metadata from session
 	 */
 	getFileMetadata(): (Partial<SessionMetadata> & { fileId?: string }) | null {
-		const sessionMap = this.ydoc.getMap<any>("session");
+		const sessionMap = this.ydoc.getMap<unknown>("session");
 
 		if (!this.isFileAvailable()) {
 			return null;
