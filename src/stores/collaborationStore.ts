@@ -765,6 +765,7 @@ function createCollaborationStore() {
 
 		/**
 		 * Toggle following host's viewport (viewer only)
+		 * This sets a P1 override in ViewportSync
 		 */
 		toggleFollowing: () => {
 			update((state) => {
@@ -772,8 +773,11 @@ function createCollaborationStore() {
 
 				const newFollowing = !state.isFollowing;
 
+				// Set P1 override in ViewportSync
+				state.sessionManager?.getViewportSync()?.setFollowOverride(newFollowing);
+
 				if (DEBUG) {
-					console.log("[collaborationStore] Following toggled:", newFollowing);
+					console.log("[collaborationStore] Following toggled (P1 override):", newFollowing);
 				}
 
 				return {
@@ -824,33 +828,35 @@ function createCollaborationStore() {
 		},
 
 		/**
-		 * Handle broadcast state change from Y.js
-		 * Called when host enables/disables broadcast
+		 * Handle broadcast state change from ViewportSync
+		 * Called from either P0 (Y.Map) or P2 (awareness heartbeat)
+		 *
+		 * For P2 calls: ViewportSync already checked followOverride before calling
+		 * So if we get here via P2, we should sync with the broadcast state
 		 */
 		handleBroadcastStateChanged: (enabled: boolean, _hostId: string | null) => {
 			update((state) => {
-				// If broadcast just enabled and we're a viewer, auto-follow
-				const shouldAutoFollow = enabled && !state.isHost && !state.isFollowing;
-				// If broadcast disabled and we're a viewer, stop following
-				const shouldStopFollowing = !enabled && !state.isHost && state.isFollowing;
+				// Skip if we're the host
+				if (state.isHost) {
+					return {
+						...state,
+						isBroadcasting: enabled,
+					};
+				}
 
+				// For viewers: sync with the broadcast state
+				// ViewportSync handles P1 override filtering before calling this
 				if (DEBUG) {
 					console.log("[collaborationStore] Broadcast state changed:", {
 						enabled,
-						shouldAutoFollow,
-						shouldStopFollowing,
+						wasFollowing: state.isFollowing,
 					});
 				}
 
 				return {
 					...state,
-					isBroadcasting: state.isHost ? enabled : state.isBroadcasting,
-					isFollowing: shouldStopFollowing ? false : shouldAutoFollow ? true : state.isFollowing,
-					showFollowToast: shouldStopFollowing
-						? false
-						: shouldAutoFollow
-							? true
-							: state.showFollowToast,
+					isFollowing: enabled,
+					showFollowToast: enabled,
 				};
 			});
 		},

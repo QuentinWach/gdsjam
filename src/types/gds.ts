@@ -43,6 +43,7 @@ export interface Cell {
 	polygons: Polygon[];
 	instances: CellInstance[];
 	boundingBox: BoundingBox;
+	skipInMinimap: boolean; // True if cell is < 1% of layout extent (for LOD culling)
 }
 
 export interface Layer {

@@ -41,6 +41,10 @@ export interface YjsSessionData {
 
 	// Participant tracking
 	participants: YjsParticipant[];
+
+	// Viewport broadcast (Phase 1)
+	broadcastEnabled?: boolean;
+	broadcastHostId?: string;
 }
 
 /**
@@ -65,6 +69,20 @@ export interface CollaborativeViewportState {
 	width: number; // Screen width in pixels
 	height: number; // Screen height in pixels
 	updatedAt: number; // Timestamp for staleness detection
+}
+
+/**
+ * Awareness state structure for a participant
+ * This is what each user stores in their awareness local state
+ */
+export interface AwarenessState {
+	userId: string;
+	displayName: string;
+	color: string;
+	isHost: boolean;
+	viewport?: CollaborativeViewportState | null;
+	/** Host includes this in awareness for P2 (heartbeat) sync */
+	broadcastEnabled?: boolean;
 }
 
 /**

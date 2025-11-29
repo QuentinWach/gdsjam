@@ -6,9 +6,11 @@ import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";
 import { layerStore } from "../../stores/layerStore";
-import type { GDSDocument } from "../../types/gds";
+import type { BoundingBox, GDSDocument } from "../../types/gds";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import LayerPanel from "../ui/LayerPanel.svelte";
+// biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
+import Minimap from "../ui/Minimap.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import MobileControls from "../ui/MobileControls.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
@@ -19,7 +21,11 @@ let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
 let panelsVisible = $state(false);
 let layerPanelVisible = $state(false);
+let minimapVisible = $state(true);
 let layerStoreInitialized = false;
+
+// Minimap state
+let viewportBounds = $state<BoundingBox | null>(null);
 
 // Viewport sync state
 const isHost = $derived($collaborationStore.isHost);
@@ -29,30 +35,6 @@ const isInSession = $derived($collaborationStore.isInSession);
 
 onMount(() => {
 	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
-
-	// Initialize renderer asynchronously
-	if (canvas) {
-		(async () => {
-			renderer = new PixiRenderer();
-			await renderer.init(canvas);
-
-			// Set up viewport sync callbacks
-			setupViewportSync();
-
-			if ($gdsStore.document) {
-				lastRenderedDocument = $gdsStore.document;
-				gdsStore.setRendering(true, "Rendering...", 0);
-				await renderer.renderGDSDocument($gdsStore.document, (progress, message) => {
-					gdsStore.setRendering(true, message, progress);
-					if (progress >= 100) {
-						setTimeout(() => gdsStore.setRendering(false), 500);
-					}
-				});
-			} else {
-				if (DEBUG) console.log("[ViewerCanvas] No document to render");
-			}
-		})();
-	}
 
 	// Add keyboard event listeners
 	const handleKeyPress = (e: KeyboardEvent) => {
@@ -69,6 +51,12 @@ onMount(() => {
 				console.log(`[ViewerCanvas] Layer panel ${layerPanelVisible ? "shown" : "hidden"}`);
 		}
 
+		// 'M' key to toggle minimap
+		if (e.key === "m" || e.key === "M") {
+			minimapVisible = !minimapVisible;
+			if (DEBUG) console.log(`[ViewerCanvas] Minimap ${minimapVisible ? "shown" : "hidden"}`);
+		}
+
 		// 'O' key to toggle polygon fill mode (Outline)
 		if (e.key === "o" || e.key === "O") {
 			renderer?.toggleFill();
@@ -76,6 +64,45 @@ onMount(() => {
 	};
 
 	window.addEventListener("keydown", handleKeyPress);
+
+	// Initialize renderer asynchronously
+	if (canvas) {
+		(async () => {
+			renderer = new PixiRenderer();
+			await renderer.init(canvas);
+
+			// Set up viewport change callback for minimap (always, regardless of session)
+			// Must be inside async block where renderer is defined
+			renderer.setOnViewportChanged((viewportState) => {
+				// Update minimap viewport bounds
+				viewportBounds = renderer?.getPublicViewportBounds() ?? null;
+
+				// Broadcast to session if host
+				if (!isInSession || !isHost || !isBroadcasting) return;
+				const sessionManager = collaborationStore.getSessionManager();
+				sessionManager?.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
+			});
+
+			// Set up viewport sync callbacks
+			setupViewportSync();
+
+			if ($gdsStore.document) {
+				lastRenderedDocument = $gdsStore.document;
+				gdsStore.setRendering(true, "Rendering...", 0);
+				await renderer.renderGDSDocument($gdsStore.document, (progress, message) => {
+					gdsStore.setRendering(true, message, progress);
+					if (progress >= 100) {
+						setTimeout(() => gdsStore.setRendering(false), 500);
+					}
+				});
+				// After render completes, fitToView has run - get correct viewport bounds
+				viewportBounds = renderer.getPublicViewportBounds();
+				if (DEBUG) console.log("[ViewerCanvas] Initial viewportBounds set:", viewportBounds);
+			} else {
+				if (DEBUG) console.log("[ViewerCanvas] No document to render");
+			}
+		})();
+	}
 
 	return () => {
 		window.removeEventListener("keydown", handleKeyPress);
@@ -133,14 +160,6 @@ function setupViewportSync() {
 		},
 	});
 
-	// Set up viewport change callback for broadcasting (host only)
-	renderer.setOnViewportChanged((viewportState) => {
-		if (!isInSession || !isHost || !isBroadcasting) return;
-
-		const sessionManager = collaborationStore.getSessionManager();
-		sessionManager?.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
-	});
-
 	// Set up blocked callback for showing toast when user tries to interact while following
 	renderer.setOnViewportBlocked(() => {
 		if (isFollowing && !isHost) {
@@ -181,6 +200,8 @@ $effect(() => {
 					setTimeout(() => gdsStore.setRendering(false), 500);
 				}
 			});
+			// Update viewport bounds after render completes (for minimap)
+			viewportBounds = renderer?.getPublicViewportBounds() ?? null;
 		})();
 	}
 });
@@ -208,17 +229,45 @@ $effect(() => {
 		console.log("[ViewerCanvas] Viewport locked:", shouldLock);
 	}
 });
+
+// Re-setup viewport sync when session state changes
+// This handles the case where file was uploaded before session was created
+$effect(() => {
+	// Track isInSession to re-trigger when joining session
+	if (isInSession && renderer?.isReady()) {
+		setupViewportSync();
+	}
+});
+
+// Handle minimap navigation (click-to-navigate)
+function handleMinimapNavigate(worldX: number, worldY: number) {
+	if (!renderer) return;
+	renderer.setViewportCenter(worldX, worldY);
+}
+
+// Toggle minimap visibility
+function toggleMinimap() {
+	minimapVisible = !minimapVisible;
+}
 </script>
 
 <div class="viewer-container">
 	<canvas bind:this={canvas} class="viewer-canvas"></canvas>
 	<PerformancePanel {renderer} statistics={$gdsStore.statistics} visible={panelsVisible} />
 	<LayerPanel statistics={$gdsStore.statistics} visible={layerPanelVisible} />
+	<Minimap
+		visible={minimapVisible}
+		document={$gdsStore.document}
+		{viewportBounds}
+		onNavigate={handleMinimapNavigate}
+	/>
 	<MobileControls
 		{renderer}
 		onTogglePerformance={() => { panelsVisible = !panelsVisible; }}
 		onToggleLayers={() => { layerPanelVisible = !layerPanelVisible; }}
+		onToggleMinimap={toggleMinimap}
 		performanceVisible={panelsVisible}
+		minimapVisible={minimapVisible}
 		layersVisible={layerPanelVisible}
 	/>
 

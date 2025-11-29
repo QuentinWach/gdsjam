@@ -480,6 +480,7 @@ async function buildGDSDocument(
 					polygons: [],
 					instances: [],
 					boundingBox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+					skipInMinimap: false, // Will be calculated after global bbox is known
 				};
 				break;
 
@@ -662,6 +663,29 @@ async function buildGDSDocument(
 			globalMinY = Math.min(globalMinY, cell.boundingBox.minY);
 			globalMaxX = Math.max(globalMaxX, cell.boundingBox.maxX);
 			globalMaxY = Math.max(globalMaxY, cell.boundingBox.maxY);
+		}
+	}
+
+	// Calculate skipInMinimap for each cell (1% threshold of layout extent)
+	// Cells smaller than 1% of the layout in either dimension are skipped in minimap
+	const layoutExtentX = globalMaxX - globalMinX;
+	const layoutExtentY = globalMaxY - globalMinY;
+	const MINIMAP_SKIP_THRESHOLD = 0.01; // 1% of layout extent
+
+	if (layoutExtentX > 0 && layoutExtentY > 0) {
+		for (const cell of cells.values()) {
+			const cellWidth = cell.boundingBox.maxX - cell.boundingBox.minX;
+			const cellHeight = cell.boundingBox.maxY - cell.boundingBox.minY;
+			cell.skipInMinimap =
+				cellWidth < MINIMAP_SKIP_THRESHOLD * layoutExtentX ||
+				cellHeight < MINIMAP_SKIP_THRESHOLD * layoutExtentY;
+		}
+
+		if (DEBUG) {
+			const skippedCount = Array.from(cells.values()).filter((c) => c.skipInMinimap).length;
+			console.log(
+				`[buildGDSDocument] Minimap LOD: ${skippedCount}/${cells.size} cells marked for skip (< 1% of layout)`,
+			);
 		}
 	}
 

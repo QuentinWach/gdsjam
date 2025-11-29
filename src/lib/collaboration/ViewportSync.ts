@@ -14,7 +14,7 @@
  */
 
 import { DEBUG } from "../config";
-import type { CollaborativeViewportState } from "./types";
+import type { AwarenessState, CollaborativeViewportState, YjsSessionData } from "./types";
 import type { YjsProvider } from "./YjsProvider";
 
 // Throttle interval for viewport broadcasts (milliseconds)
@@ -23,10 +23,16 @@ const VIEWPORT_BROADCAST_THROTTLE = 200;
 export interface ViewportSyncCallbacks {
 	/** Called when host's viewport changes (for followers to apply) */
 	onHostViewportChanged?: (viewport: CollaborativeViewportState) => void;
-	/** Called when broadcast state changes */
+	/** Called when broadcast state changes (P0 or P2 triggered) */
 	onBroadcastStateChanged?: (enabled: boolean, hostId: string | null) => void;
 }
 
+/**
+ * Priority levels for follow state:
+ * - P0: Host toggle (Y.Map) - resets viewer overrides
+ * - P1: Viewer manual toggle (local) - overrides heartbeat
+ * - P2: Heartbeat (awareness) - default sync
+ */
 export class ViewportSync {
 	private yjsProvider: YjsProvider;
 	private userId: string;
@@ -41,6 +47,14 @@ export class ViewportSync {
 	private screenWidth: number = 0;
 	private screenHeight: number = 0;
 
+	/**
+	 * P1 local override for following (viewer only)
+	 * - undefined: use P2 heartbeat state (default)
+	 * - true: manually enabled following
+	 * - false: manually disabled following
+	 */
+	private followOverride: boolean | undefined = undefined;
+
 	constructor(yjsProvider: YjsProvider, userId: string, callbacks: ViewportSyncCallbacks = {}) {
 		this.yjsProvider = yjsProvider;
 		this.userId = userId;
@@ -51,6 +65,25 @@ export class ViewportSync {
 
 		if (DEBUG) {
 			console.log("[ViewportSync] Initialized for user:", userId);
+		}
+	}
+
+	/**
+	 * Notify callback of current broadcast state
+	 * Call this after Y.js sync completes for viewers joining after broadcast started
+	 * Y.Map observers only fire on changes, not initial state
+	 */
+	notifyCurrentBroadcastState(): void {
+		const enabled = this.isBroadcastEnabled();
+		const hostId = this.getBroadcastHostId();
+
+		if (DEBUG) {
+			console.log("[ViewportSync] Current broadcast state:", { enabled, hostId });
+		}
+
+		// Only notify if broadcast is actually enabled
+		if (enabled && this.callbacks.onBroadcastStateChanged) {
+			this.callbacks.onBroadcastStateChanged(enabled, hostId);
 		}
 	}
 
@@ -111,6 +144,7 @@ export class ViewportSync {
 
 	/**
 	 * Actually broadcast the viewport via Awareness
+	 * Also includes broadcastEnabled: true for P2 heartbeat sync
 	 */
 	private doBroadcast(viewport: CollaborativeViewportState): void {
 		try {
@@ -120,6 +154,9 @@ export class ViewportSync {
 			awareness.setLocalState({
 				...currentState,
 				viewport,
+				// Include broadcast state in awareness for P2 heartbeat sync
+				// This allows late joiners to get the state without relying on Y.Map observer timing
+				broadcastEnabled: true,
 			});
 
 			this.lastBroadcastTime = Date.now();
@@ -140,8 +177,12 @@ export class ViewportSync {
 		const awareness = this.yjsProvider.getAwareness();
 		const currentState = awareness.getLocalState() || {};
 
-		// Remove viewport field by destructuring it out
-		const { viewport: _viewport, ...rest } = currentState as any;
+		// Remove viewport and broadcastEnabled fields
+		const {
+			viewport: _viewport,
+			broadcastEnabled: _broadcastEnabled,
+			...rest
+		} = currentState as any;
 		awareness.setLocalState(rest);
 
 		if (DEBUG) {
@@ -150,10 +191,17 @@ export class ViewportSync {
 	}
 
 	/**
+	 * Get typed session map
+	 */
+	private getSessionMap() {
+		return this.yjsProvider.getMap<YjsSessionData[keyof YjsSessionData]>("session");
+	}
+
+	/**
 	 * Enable broadcast mode (host only)
 	 */
 	enableBroadcast(): void {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const sessionMap = this.getSessionMap();
 		this.yjsProvider.getDoc().transact(() => {
 			sessionMap.set("broadcastEnabled", true);
 			sessionMap.set("broadcastHostId", this.userId);
@@ -165,10 +213,33 @@ export class ViewportSync {
 	}
 
 	/**
+	 * Re-broadcast the current broadcast state to trigger Y.Map observers
+	 * Call this when a new peer joins and broadcast is already enabled
+	 * This forces a Y.Map change event so the new peer's observer fires
+	 */
+	rebroadcastState(): void {
+		if (!this.isBroadcastEnabled()) {
+			return;
+		}
+
+		if (DEBUG) {
+			console.log("[ViewportSync] Re-broadcasting state for new peer");
+		}
+
+		// Force a Y.Map update by writing the same values
+		// Use a timestamp to ensure the change is detected
+		const sessionMap = this.getSessionMap();
+		this.yjsProvider.getDoc().transact(() => {
+			sessionMap.set("broadcastEnabled", true);
+			sessionMap.set("broadcastHostId", this.userId);
+		});
+	}
+
+	/**
 	 * Disable broadcast mode
 	 */
 	disableBroadcast(): void {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const sessionMap = this.getSessionMap();
 		this.yjsProvider.getDoc().transact(() => {
 			sessionMap.set("broadcastEnabled", false);
 			sessionMap.delete("broadcastHostId");
@@ -185,7 +256,7 @@ export class ViewportSync {
 	 * Check if broadcast is currently enabled
 	 */
 	isBroadcastEnabled(): boolean {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const sessionMap = this.getSessionMap();
 		return sessionMap.get("broadcastEnabled") === true;
 	}
 
@@ -193,8 +264,9 @@ export class ViewportSync {
 	 * Get current broadcast host ID
 	 */
 	getBroadcastHostId(): string | null {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
-		return sessionMap.get("broadcastHostId") ?? null;
+		const sessionMap = this.getSessionMap();
+		const hostId = sessionMap.get("broadcastHostId");
+		return typeof hostId === "string" ? hostId : null;
 	}
 
 	/**
@@ -208,8 +280,9 @@ export class ViewportSync {
 		const states = awareness.getStates();
 
 		for (const [, state] of states) {
-			if (state && (state as any).userId === broadcastHostId) {
-				return (state as any).viewport ?? null;
+			const awarenessState = state as AwarenessState | undefined;
+			if (awarenessState?.userId === broadcastHostId) {
+				return awarenessState.viewport ?? null;
 			}
 		}
 
@@ -218,41 +291,130 @@ export class ViewportSync {
 
 	/**
 	 * Set up listener for awareness changes (to detect host viewport updates)
+	 * Also handles P2 heartbeat sync for broadcast state
 	 */
 	private setupAwarenessListener(): void {
 		const awareness = this.yjsProvider.getAwareness();
 
 		awareness.on("change", () => {
-			// Only notify if we're not the broadcast host (followers care about host's viewport)
-			const broadcastHostId = this.getBroadcastHostId();
-			if (!broadcastHostId || broadcastHostId === this.userId) {
-				return;
+			// Host doesn't need to listen to awareness for viewport
+			const isHost = this.getBroadcastHostId() === this.userId;
+			if (isHost) return;
+
+			// Check for P2 heartbeat: host's broadcastEnabled in awareness
+			const hostBroadcastEnabled = this.getHostBroadcastEnabledFromAwareness();
+			const hostId = this.getBroadcastHostId();
+
+			// P2: If no P1 override, sync with heartbeat
+			if (this.followOverride === undefined && hostBroadcastEnabled !== undefined) {
+				if (DEBUG) {
+					console.log("[ViewportSync] P2 heartbeat sync:", {
+						hostBroadcastEnabled,
+						hostId,
+					});
+				}
+				// Notify callback of broadcast state from heartbeat
+				if (this.callbacks.onBroadcastStateChanged) {
+					this.callbacks.onBroadcastStateChanged(hostBroadcastEnabled, hostId);
+				}
 			}
 
-			const hostViewport = this.getHostViewport();
-			if (hostViewport && this.callbacks.onHostViewportChanged) {
-				this.callbacks.onHostViewportChanged(hostViewport);
+			// Handle viewport updates if we should be following
+			const shouldFollow = this.shouldFollowHost();
+			if (shouldFollow) {
+				const hostViewport = this.getHostViewport();
+				if (hostViewport && this.callbacks.onHostViewportChanged) {
+					this.callbacks.onHostViewportChanged(hostViewport);
+				}
 			}
 		});
 	}
 
 	/**
-	 * Set up listener for session map changes (broadcast state)
+	 * Get host's broadcastEnabled from awareness (P2 heartbeat)
+	 */
+	private getHostBroadcastEnabledFromAwareness(): boolean | undefined {
+		const awareness = this.yjsProvider.getAwareness();
+		const states = awareness.getStates();
+
+		// Look for any host with broadcastEnabled set
+		for (const [, state] of states) {
+			const awarenessState = state as AwarenessState | undefined;
+			if (awarenessState?.isHost && awarenessState.broadcastEnabled !== undefined) {
+				return awarenessState.broadcastEnabled;
+			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * Determine if we should follow host based on priority system
+	 * P1 (local override) takes precedence over P2 (heartbeat)
+	 */
+	private shouldFollowHost(): boolean {
+		// If we're the host, we don't follow ourselves
+		const isHost = this.getBroadcastHostId() === this.userId;
+		if (isHost) return false;
+
+		// P1: Local override takes precedence
+		if (this.followOverride !== undefined) {
+			return this.followOverride;
+		}
+
+		// P2: Use heartbeat state
+		const hostBroadcastEnabled = this.getHostBroadcastEnabledFromAwareness();
+		return hostBroadcastEnabled === true;
+	}
+
+	/**
+	 * Set the P1 follow override (viewer manual toggle)
+	 * @param override - true/false for manual override, undefined to use P2 heartbeat
+	 */
+	setFollowOverride(override: boolean | undefined): void {
+		this.followOverride = override;
+		if (DEBUG) {
+			console.log("[ViewportSync] Follow override set:", override);
+		}
+	}
+
+	/**
+	 * Get current P1 follow override
+	 */
+	getFollowOverride(): boolean | undefined {
+		return this.followOverride;
+	}
+
+	/**
+	 * Reset P1 follow override (called on P0 host toggle)
+	 */
+	resetFollowOverride(): void {
+		this.followOverride = undefined;
+		if (DEBUG) {
+			console.log("[ViewportSync] Follow override reset to undefined");
+		}
+	}
+
+	/**
+	 * Set up listener for session map changes (broadcast state - P0)
+	 * P0 changes reset P1 overrides
 	 */
 	private setupSessionMapListener(): void {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const sessionMap = this.getSessionMap();
 
 		sessionMap.observe((event) => {
 			if (event.keysChanged.has("broadcastEnabled") || event.keysChanged.has("broadcastHostId")) {
 				const enabled = this.isBroadcastEnabled();
 				const hostId = this.getBroadcastHostId();
 
+				// P0 toggle: Reset P1 overrides so viewers sync with new state
+				this.resetFollowOverride();
+
 				if (this.callbacks.onBroadcastStateChanged) {
 					this.callbacks.onBroadcastStateChanged(enabled, hostId);
 				}
 
 				if (DEBUG) {
-					console.log("[ViewportSync] Broadcast state changed:", { enabled, hostId });
+					console.log("[ViewportSync] P0 Broadcast state changed:", { enabled, hostId });
 				}
 			}
 		});

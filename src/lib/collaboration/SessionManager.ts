@@ -54,7 +54,6 @@ export class SessionManager {
 	private userId: string;
 	private sessionId: string | null = null;
 	private fileTransfer: FileTransfer | null = null;
-	private uploadedFileBuffer: ArrayBuffer | null = null; // Store file for sharing with peers
 	private pendingFile: PendingFile | null = null; // File uploaded before session creation
 	private hostCheckInterval: ReturnType<typeof setInterval> | null = null;
 	private viewportSync: ViewportSync | null = null;
@@ -169,7 +168,6 @@ export class SessionManager {
 				this.pendingFile.fileSize,
 			);
 
-			this.uploadedFileBuffer = this.pendingFile.arrayBuffer;
 			this.pendingFile = null;
 		}
 
@@ -400,6 +398,10 @@ export class SessionManager {
 			this.participantManager.registerParticipant();
 			this.participantManager.setLocalAwarenessState({ isHost: false });
 
+			// Notify ViewportSync of current broadcast state (for late joiners)
+			// Must happen after sync so we have the host's broadcast state
+			this.viewportSync?.notifyCurrentBroadcastState();
+
 			if (DEBUG) {
 				console.log("[SessionManager] VIEWER PATH complete - synced from host/peers");
 			}
@@ -537,9 +539,6 @@ export class SessionManager {
 		if (!this.sessionId) {
 			throw new Error("Not in a session");
 		}
-
-		// Store file buffer for potential re-sharing
-		this.uploadedFileBuffer = arrayBuffer;
 
 		// Create file transfer instance
 		this.fileTransfer = new FileTransfer(this.yjsProvider.getDoc(), onProgress, onEvent);
@@ -735,7 +734,6 @@ export class SessionManager {
 		this.hostManager.destroy();
 		this.participantManager.destroy();
 		this.yjsProvider.destroy();
-		this.uploadedFileBuffer = null;
 		this.fileTransfer = null;
 	}
 
@@ -952,6 +950,17 @@ export class SessionManager {
 		}
 
 		this.viewportSync = new ViewportSync(this.yjsProvider, this.userId, this.viewportSyncCallbacks);
+
+		// When a new peer joins, re-broadcast the viewport state so they receive it
+		// This is needed because Y.Map observers only fire on changes, not initial state
+		this.yjsProvider.onEvent((event) => {
+			if (event.type === "peer-joined" && this.hostManager.getIsHost()) {
+				if (DEBUG) {
+					console.log("[SessionManager] New peer joined, re-broadcasting viewport state");
+				}
+				this.viewportSync?.rebroadcastState();
+			}
+		});
 
 		if (DEBUG) {
 			console.log("[SessionManager] ViewportSync initialized");

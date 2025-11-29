@@ -303,6 +303,12 @@ export class PixiRenderer {
 	 * Notify viewport change callback (for collaboration sync)
 	 */
 	private notifyViewportChanged(): void {
+		// Skip notification during re-render - mainContainer may be temporarily replaced
+		// with a new container that has wrong scale. The correct notification will happen
+		// after re-render completes and viewport state is restored.
+		if (this.isRerendering) {
+			return;
+		}
 		if (this.onViewportChangedCallback) {
 			this.onViewportChangedCallback(this.getViewportState());
 		}
@@ -511,6 +517,9 @@ export class PixiRenderer {
 
 		// Clear flag
 		this.isRerendering = false;
+
+		// Now notify viewport change with correct bounds (was skipped during re-render)
+		this.notifyViewportChanged();
 	}
 
 	/**
@@ -801,6 +810,62 @@ export class PixiRenderer {
 			width: this.app.screen.width,
 			height: this.app.screen.height,
 		};
+	}
+
+	/**
+	 * Get document bounding box (for minimap)
+	 */
+	getDocumentBoundingBox(): BoundingBox | null {
+		return this.currentDocument?.boundingBox ?? null;
+	}
+
+	/**
+	 * Get current document (for minimap rendering)
+	 */
+	getCurrentDocument(): GDSDocument | null {
+		return this.currentDocument;
+	}
+
+	/**
+	 * Get document units (for minimap coordinate transformation)
+	 */
+	getDocumentUnits(): { database: number; user: number } {
+		return { ...this.documentUnits };
+	}
+
+	/**
+	 * Get public viewport bounds (for minimap)
+	 */
+	getPublicViewportBounds(): BoundingBox {
+		return this.getViewportBounds();
+	}
+
+	/**
+	 * Set viewport center (for minimap click-to-navigate)
+	 * Instantly centers the viewport on the given world coordinates
+	 */
+	setViewportCenter(worldX: number, worldY: number): void {
+		if (this.isViewportLocked) {
+			this.onViewportBlockedCallback?.();
+			return;
+		}
+
+		const screenWidth = this.app.screen.width;
+		const screenHeight = this.app.screen.height;
+		const scaleX = this.mainContainer.scale.x;
+		const scaleY = this.mainContainer.scale.y;
+
+		// Calculate new container position to center on world coordinates
+		this.mainContainer.x = screenWidth / 2 - worldX * scaleX;
+		this.mainContainer.y = screenHeight / 2 - worldY * scaleY;
+
+		// Trigger viewport update
+		this.updateViewport();
+		this.updateGrid();
+		this.updateScaleBar();
+
+		// Notify callback
+		this.notifyViewportChanged();
 	}
 
 	/**
