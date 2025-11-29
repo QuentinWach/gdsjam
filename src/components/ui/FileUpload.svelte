@@ -263,7 +263,14 @@ function triggerFileInput() {
 							<span class="example-desc">{example.description}</span>
 							<span class="example-meta">
 								{example.fileSizeMB < 1 ? `${Math.round(example.fileSizeMB * 1000)} KB` : `${example.fileSizeMB.toFixed(1)} MB`}
-								· {example.source}
+								·
+								<a
+									href={example.sourceUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="example-source-link"
+									onclick={(e) => e.stopPropagation()}
+								>{example.attribution}</a>
 							</span>
 						</div>
 						{#if loadingExampleId === example.id}
@@ -465,6 +472,15 @@ function triggerFileInput() {
 		color: #666;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
+	}
+
+	.example-source-link {
+		color: #4a9eff;
+		text-decoration: none;
+	}
+
+	.example-source-link:hover {
+		text-decoration: underline;
 	}
 
 	.example-loading {

@@ -21,6 +21,8 @@ export interface Example {
 	source: ExampleSource;
 	/** Attribution text */
 	attribution: string;
+	/** URL to the source repository or file */
+	sourceUrl: string;
 	/** License info */
 	license: string;
 	/** URL to the GDS file (Hugging Face preferred) */
