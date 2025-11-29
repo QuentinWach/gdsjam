@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
+import { get } from "svelte/store";
 import type {
 	CollaborativeViewportState,
 	ParticipantViewport,
@@ -102,8 +103,12 @@ onMount(() => {
 				// Update minimap viewport bounds
 				viewportBounds = renderer?.getPublicViewportBounds() ?? null;
 
+				// Read current state from store (not captured $derived values)
+				// This ensures we get the latest state when callback executes
+				const state = get(collaborationStore);
+
 				// Skip session-related broadcasts if not in session
-				if (!isInSession) return;
+				if (!state.isInSession) return;
 				const sessionManager = collaborationStore.getSessionManager();
 				if (!sessionManager) return;
 
@@ -111,7 +116,7 @@ onMount(() => {
 				sessionManager.broadcastOwnViewport(viewportState.x, viewportState.y, viewportState.scale);
 
 				// Broadcast to followers if host and broadcasting
-				if (isHost && isBroadcasting) {
+				if (state.isHost && state.isBroadcasting) {
 					sessionManager.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
 				}
 			});
@@ -147,7 +152,9 @@ onMount(() => {
  * Set up viewport sync callbacks for collaboration
  */
 function setupViewportSync() {
-	if (!renderer || !isInSession) return;
+	// Read current state from store (not captured $derived values)
+	const currentState = get(collaborationStore);
+	if (!renderer || !currentState.isInSession) return;
 	const sessionManager = collaborationStore.getSessionManager();
 	if (!sessionManager) return;
 
@@ -155,7 +162,9 @@ function setupViewportSync() {
 	sessionManager.setViewportSyncCallbacks({
 		// When host's viewport changes, apply it if we're following
 		onHostViewportChanged: (viewport: CollaborativeViewportState) => {
-			if (!renderer || !isFollowing) return;
+			// Read current state from store (not captured $derived values)
+			const state = get(collaborationStore);
+			if (!renderer || !state.isFollowing) return;
 
 			if (DEBUG) {
 				console.log("[ViewerCanvas] Applying host viewport:", viewport);
@@ -201,7 +210,9 @@ function setupViewportSync() {
 
 	// Set up blocked callback for showing toast when user tries to interact while following
 	renderer.setOnViewportBlocked(() => {
-		if (isFollowing && !isHost) {
+		// Read current state from store (not captured $derived values)
+		const state = get(collaborationStore);
+		if (state.isFollowing && !state.isHost) {
 			collaborationStore.showFollowToast();
 		}
 	});
@@ -295,8 +306,8 @@ $effect(() => {
 
 // Re-setup viewport sync when session state changes
 // This handles the case where file was uploaded before session was created
+// Note: Callbacks use get(collaborationStore) so they always read fresh state
 $effect(() => {
-	// Track isInSession to re-trigger when joining session
 	if (isInSession && renderer?.isReady()) {
 		setupViewportSync();
 	}
