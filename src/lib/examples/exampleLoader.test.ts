@@ -32,7 +32,8 @@ const mockExample: Example = {
 	isCompressed: false,
 };
 
-const mockCompressedExample: Example = {
+// Reserved for future compressed file tests
+const _mockCompressedExample: Example = {
 	...mockExample,
 	id: "test-compressed",
 	name: "Test Compressed",

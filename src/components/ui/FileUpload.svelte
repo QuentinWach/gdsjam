@@ -47,9 +47,7 @@ async function syncFileToCollaboration(arrayBuffer: ArrayBuffer, fileName: strin
 			}
 		} catch (error) {
 			console.error("[FileUpload] Failed to upload file to session:", error);
-			throw new CollaborationSyncError(
-				error instanceof Error ? error.message : String(error),
-			);
+			throw new CollaborationSyncError(error instanceof Error ? error.message : String(error));
 		}
 	} else if (!$collaborationStore.isInSession) {
 		// Not in a session - upload as pending so it can be shared when session is created
