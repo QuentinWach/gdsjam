@@ -28,7 +28,7 @@ let dragStart = $state({ x: 0, y: 0 });
 let resizeStart = $state({ width: 0, height: 0, x: 0, y: 0 });
 
 // Canvas and renderer
-const canvasElement: HTMLCanvasElement | null = $state(null);
+let canvasElement: HTMLCanvasElement | null = $state(null);
 let minimapRenderer: MinimapRenderer | null = $state(null);
 let lastLayerVersion = 0;
 
