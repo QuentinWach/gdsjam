@@ -38,7 +38,8 @@ let resizeStart = $state({ width: 0, height: 0, x: 0, y: 0 });
 // Canvas and renderer
 let canvasElement: HTMLCanvasElement | null = $state(null);
 let minimapRenderer: MinimapRenderer | null = $state(null);
-let lastLayerVersion = 0;
+// Cached colors from initial document load (not reactive to layer store changes)
+let cachedColors: Map<string, number> = new Map();
 
 // Constants
 const MIN_SIZE = 100;
@@ -272,8 +273,8 @@ async function initRenderer() {
 }
 
 // Render minimap
-// Note: Layer visibility sync is DISABLED for performance optimization.
-// Minimap always shows all layers visible.
+// Note: Layer visibility and color sync is DISABLED for performance optimization.
+// Minimap always shows all layers visible with colors cached at document load.
 async function renderMinimap() {
 	if (!minimapRenderer || !document) {
 		if (DEBUG) console.log("[Minimap] Skipping render - no renderer or document");
@@ -282,11 +283,10 @@ async function renderMinimap() {
 
 	// Pass empty visibility map - all layers default to visible
 	const visibility = new Map<string, boolean>();
-	const colors = layerStore.getColorsMap($layerStore);
 
-	if (DEBUG) console.log("[Minimap] Rendering with all layers visible");
+	if (DEBUG) console.log("[Minimap] Rendering with all layers visible, using cached colors");
 
-	await minimapRenderer.render(document, visibility, colors);
+	await minimapRenderer.render(document, visibility, cachedColors);
 }
 
 // Update viewport outline (this is cheap, runs on every viewport change)
@@ -324,6 +324,8 @@ $effect(() => {
 	const docName = document?.name ?? null;
 	if (docName !== lastDocumentName && document && minimapRenderer) {
 		lastDocumentName = docName;
+		// Cache colors at document load time (not reactive to subsequent layer changes)
+		cachedColors = layerStore.getColorsMap($layerStore);
 		renderMinimap();
 	}
 });
