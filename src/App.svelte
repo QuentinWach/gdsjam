@@ -373,10 +373,11 @@ onDestroy(() => {
 		position: absolute;
 		inset: 0;
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: center;
 		padding: 2rem;
 		background-color: #1a1a1a;
+		overflow-y: auto;
 	}
 
 	.controls-info {

@@ -3,8 +3,5 @@
 		"biome check --write --no-errors-on-unmatched",
 		"biome format --write --no-errors-on-unmatched"
 	],
-	"*.svelte": [
-		"svelte-check --tsconfig ./tsconfig.json"
-	]
+	"*.svelte": ["svelte-check --tsconfig ./tsconfig.json"]
 }
-

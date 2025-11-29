@@ -56,7 +56,7 @@ export class HostManager {
 	 * Set up Y.js observer for currentHostId changes
 	 */
 	private setupHostObserver(): void {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const sessionMap = this.yjsProvider.getMap<unknown>("session");
 		sessionMap.observe((event) => {
 			if (event.keysChanged.has("currentHostId")) {
 				const newHostId = sessionMap.get("currentHostId") as string | undefined;
@@ -90,15 +90,15 @@ export class HostManager {
 	 * Get current host ID from Y.js session map
 	 */
 	getCurrentHostId(): string | null {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
-		return sessionMap.get("currentHostId") ?? null;
+		const sessionMap = this.yjsProvider.getMap<unknown>("session");
+		return (sessionMap.get("currentHostId") as string | undefined) ?? null;
 	}
 
 	/**
 	 * Set current host ID in Y.js session map
 	 */
 	setCurrentHostId(hostId: string): void {
-		const sessionMap = this.yjsProvider.getMap<any>("session");
+		const sessionMap = this.yjsProvider.getMap<unknown>("session");
 		this.yjsProvider.getDoc().transact(() => {
 			sessionMap.set("currentHostId", hostId);
 			sessionMap.set("hostLastSeen", Date.now());
