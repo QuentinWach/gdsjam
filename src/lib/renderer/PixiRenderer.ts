@@ -303,6 +303,12 @@ export class PixiRenderer {
 	 * Notify viewport change callback (for collaboration sync)
 	 */
 	private notifyViewportChanged(): void {
+		// Skip notification during re-render - mainContainer may be temporarily replaced
+		// with a new container that has wrong scale. The correct notification will happen
+		// after re-render completes and viewport state is restored.
+		if (this.isRerendering) {
+			return;
+		}
 		if (this.onViewportChangedCallback) {
 			this.onViewportChangedCallback(this.getViewportState());
 		}
@@ -511,6 +517,9 @@ export class PixiRenderer {
 
 		// Clear flag
 		this.isRerendering = false;
+
+		// Now notify viewport change with correct bounds (was skipped during re-render)
+		this.notifyViewportChanged();
 	}
 
 	/**

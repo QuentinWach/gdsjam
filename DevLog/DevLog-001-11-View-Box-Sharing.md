@@ -257,7 +257,38 @@ Minimap component showing layout overview for navigation.
    - Fix: Moved viewport callback setup to main `$effect` so it runs regardless of session state; also initialize `viewportBounds` immediately after setting up callback
 
 **Known Issues:**
-- [ ] Minimap layout does not scale to fill canvas when panel is resized - `fitToView()` uses `this.canvas.width/height` but scale is not recalculating correctly after resize
+
+1. **Minimap layout resize scaling** - FIXED (2025-11-29)
+   - Symptom: Minimap layout does not scale to fill canvas when panel is resized
+   - Root cause: `minimapRenderer` was not reactive, so the resize effect wasn't tracking it properly
+   - Fix: Made `minimapRenderer` use `$state()` and ensured the resize effect reads `panelSize` at top level for Svelte 5 dependency tracking
+
+2. **Minimap toggle (M key) breaks rendering** - FIXED (2025-11-29)
+   - Symptom: After hiding and showing minimap with M key, canvas and rendering disappeared
+   - Root cause: `{#if visible}` removed the entire panel from DOM, destroying the canvas element
+   - Fix: Changed to use CSS `display: none` instead of conditional rendering to preserve DOM element
+
+3. **Binding error with canvasElement** - FIXED (2025-11-29)
+   - Symptom: `Cannot bind to constant` error
+   - Root cause: Biome linter was changing `let canvasElement` to `const canvasElement` during pre-commit
+   - Fix: Removed `.svelte` from `.lintstagedrc.json` so biome doesn't run on Svelte files during commits (Svelte `bind:this` requires `let`)
+
+4. **Initial viewport box has zero size** - FIXED (2025-11-29)
+   - Symptom: When a new file is uploaded and rendered, the viewport rectangle in minimap shows ~0.017 pixel width instead of filling the minimap
+   - Debug findings:
+     - Minimap scale: `0.000014466666666666667`
+     - Document bounds: 10,000,000 units wide (from -5M to +5M)
+     - Initial viewport width in pixels: `0.017` → world units = ~1,200 units (should be ~10M after fitToView)
+     - After manual zoom, viewport width becomes correct (~316 pixels, ~21M world units)
+   - Root cause investigation:
+     - `fitToView()` sets correct scale on `mainContainer`, then calls `performViewportUpdate()`
+     - `performViewportUpdate()` triggers LOD depth increase check via `lodManager.checkAndTriggerRerender()`
+     - `increaseDepthAndRerender()` **synchronously** replaces `this.mainContainer` with a NEW container (scale=1) before its first `await`
+     - Then `fitToView()` continues and calls `notifyViewportChanged()` - but now `this.mainContainer` is the NEW one with wrong scale=1!
+   - Fix in `PixiRenderer.ts`:
+     - Skip `notifyViewportChanged()` when `isRerendering` is true (line 305-307)
+     - Call `notifyViewportChanged()` at the END of `increaseDepthAndRerender()` after `isRerendering = false` (line 522)
+   - This ensures the minimap always receives correct viewport bounds after fitToView and LOD re-render complete
 
 **Deferred:**
 - [ ] Polygon-level LOD culling (cell-level is sufficient for MVP)

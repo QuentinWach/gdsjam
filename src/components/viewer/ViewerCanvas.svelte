@@ -36,30 +36,6 @@ const isInSession = $derived($collaborationStore.isInSession);
 onMount(() => {
 	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
 
-	// Initialize renderer asynchronously
-	if (canvas) {
-		(async () => {
-			renderer = new PixiRenderer();
-			await renderer.init(canvas);
-
-			// Set up viewport sync callbacks
-			setupViewportSync();
-
-			if ($gdsStore.document) {
-				lastRenderedDocument = $gdsStore.document;
-				gdsStore.setRendering(true, "Rendering...", 0);
-				await renderer.renderGDSDocument($gdsStore.document, (progress, message) => {
-					gdsStore.setRendering(true, message, progress);
-					if (progress >= 100) {
-						setTimeout(() => gdsStore.setRendering(false), 500);
-					}
-				});
-			} else {
-				if (DEBUG) console.log("[ViewerCanvas] No document to render");
-			}
-		})();
-	}
-
 	// Add keyboard event listeners
 	const handleKeyPress = (e: KeyboardEvent) => {
 		// 'P' key to toggle performance panels
@@ -89,19 +65,44 @@ onMount(() => {
 
 	window.addEventListener("keydown", handleKeyPress);
 
-	// Set up viewport change callback for minimap (always, regardless of session)
-	renderer?.setOnViewportChanged((viewportState) => {
-		// Update minimap viewport bounds
-		viewportBounds = renderer?.getPublicViewportBounds() ?? null;
+	// Initialize renderer asynchronously
+	if (canvas) {
+		(async () => {
+			renderer = new PixiRenderer();
+			await renderer.init(canvas);
 
-		// Broadcast to session if host
-		if (!isInSession || !isHost || !isBroadcasting) return;
-		const sessionManager = collaborationStore.getSessionManager();
-		sessionManager?.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
-	});
+			// Set up viewport change callback for minimap (always, regardless of session)
+			// Must be inside async block where renderer is defined
+			renderer.setOnViewportChanged((viewportState) => {
+				// Update minimap viewport bounds
+				viewportBounds = renderer?.getPublicViewportBounds() ?? null;
 
-	// Initialize viewport bounds immediately
-	viewportBounds = renderer?.getPublicViewportBounds() ?? null;
+				// Broadcast to session if host
+				if (!isInSession || !isHost || !isBroadcasting) return;
+				const sessionManager = collaborationStore.getSessionManager();
+				sessionManager?.broadcastViewport(viewportState.x, viewportState.y, viewportState.scale);
+			});
+
+			// Set up viewport sync callbacks
+			setupViewportSync();
+
+			if ($gdsStore.document) {
+				lastRenderedDocument = $gdsStore.document;
+				gdsStore.setRendering(true, "Rendering...", 0);
+				await renderer.renderGDSDocument($gdsStore.document, (progress, message) => {
+					gdsStore.setRendering(true, message, progress);
+					if (progress >= 100) {
+						setTimeout(() => gdsStore.setRendering(false), 500);
+					}
+				});
+				// After render completes, fitToView has run - get correct viewport bounds
+				viewportBounds = renderer.getPublicViewportBounds();
+				if (DEBUG) console.log("[ViewerCanvas] Initial viewportBounds set:", viewportBounds);
+			} else {
+				if (DEBUG) console.log("[ViewerCanvas] No document to render");
+			}
+		})();
+	}
 
 	return () => {
 		window.removeEventListener("keydown", handleKeyPress);
