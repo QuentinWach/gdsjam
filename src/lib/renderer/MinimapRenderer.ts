@@ -477,7 +477,7 @@ export class MinimapRenderer {
 
 		// Draw viewport rectangle - use a thicker line to ensure visibility
 		this.viewportOutline.rect(left, top, width, height);
-		this.viewportOutline.stroke({ color: 0xff0000, width: 3, alpha: 1.0 }); // Red, thicker, fully opaque
+		this.viewportOutline.stroke({ color: 0xcccccc, width: 3, alpha: 1.0 }); // Light grey (same as coordinates)
 	}
 
 	/**
