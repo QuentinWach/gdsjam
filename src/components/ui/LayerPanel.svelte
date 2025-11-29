@@ -14,10 +14,10 @@ const { statistics, visible = true }: Props = $props();
 
 const storeState = $derived($layerStore);
 const layerVisibility = $derived(storeState.visibility);
-const syncEnabled = $derived(storeState.syncEnabled);
 const isInSession = $derived($collaborationStore.isInSession);
 const isHost = $derived($collaborationStore.isHost);
 const isLayerBroadcasting = $derived($collaborationStore.isLayerBroadcasting);
+const isLayerFollowing = $derived($collaborationStore.isLayerFollowing);
 
 function toggleLayer(key: string) {
 	// Update gdsStore first (source of truth for document state)
@@ -49,7 +49,7 @@ function onLayerVisibilityChange(visibility: { [key: string]: boolean }) {
 	// Notify renderer to update visibility
 	window.dispatchEvent(
 		new CustomEvent("layer-visibility-changed", {
-			detail: { visibility, syncEnabled },
+			detail: { visibility },
 		}),
 	);
 
@@ -61,17 +61,12 @@ function onLayerVisibilityChange(visibility: { [key: string]: boolean }) {
 	}
 }
 
-function toggleSyncMode() {
-	layerStore.toggleSync();
-	// If in session, toggle broadcast (host) or following (viewer)
-	if (isInSession) {
-		if (isHost) {
-			collaborationStore.toggleLayerBroadcast();
-		} else {
-			collaborationStore.toggleLayerFollowing();
-		}
-	}
-	if (DEBUG) console.log(`[LayerPanel] Layer sync ${!syncEnabled ? "enabled" : "disabled"}`);
+function handleBroadcastToggle() {
+	collaborationStore.toggleLayerBroadcast();
+}
+
+function handleFollowToggle() {
+	collaborationStore.toggleLayerFollowing();
 }
 
 function getLayerColor(layer: number, datatype: number): string {
@@ -109,12 +104,21 @@ function getLayerColor(layer: number, datatype: number): string {
 		<div class="panel-header">
 			<h3>Layers ({statistics.layerStats.size})</h3>
 
-			<div class="sync-toggle">
-				<label>
-					<input type="checkbox" checked={syncEnabled} onchange={toggleSyncMode} />
-					<span class="sync-label">Sync with others</span>
-				</label>
-			</div>
+			{#if isInSession}
+				<div class="layer-sync-controls">
+					{#if isHost}
+						<label class="sync-toggle">
+							<input type="checkbox" checked={isLayerBroadcasting} onchange={handleBroadcastToggle} />
+							<span class="toggle-label">Broadcast layers</span>
+						</label>
+					{:else}
+						<label class="sync-toggle">
+							<input type="checkbox" checked={isLayerFollowing} onchange={handleFollowToggle} />
+							<span class="toggle-label">Follow host</span>
+						</label>
+					{/if}
+				</div>
+			{/if}
 
 			<div class="bulk-actions">
 				<button
@@ -182,27 +186,35 @@ function getLayerColor(layer: number, datatype: number): string {
 		color: #fff;
 	}
 
-	.sync-toggle {
+	.layer-sync-controls {
 		margin-bottom: 8px;
 		padding: 6px;
 		background: rgba(255, 255, 255, 0.05);
 		border-radius: 3px;
 	}
 
-	.sync-toggle label {
+	.sync-toggle {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: 8px;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.sync-toggle input[type="checkbox"] {
+		width: 14px;
+		height: 14px;
+		accent-color: #4a9eff;
 		cursor: pointer;
 	}
 
-	.sync-label {
+	.toggle-label {
 		font-size: 11px;
 		color: #aaa;
 	}
 
-	.sync-toggle input[type="checkbox"]:checked + .sync-label {
-		color: #4a9eff;
+	.sync-toggle:hover .toggle-label {
+		color: #ddd;
 	}
 
 	.bulk-actions {
