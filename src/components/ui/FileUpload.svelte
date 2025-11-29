@@ -12,6 +12,60 @@ let fileInputElement: HTMLInputElement;
 let loadingExampleId: string | null = $state(null);
 
 /**
+ * Sync file to collaboration session
+ * - If in session as host: upload file to session for immediate sync
+ * - If not in session: upload as pending for future session creation
+ * - If in session as viewer: do nothing (viewers don't upload)
+ */
+async function syncFileToCollaboration(arrayBuffer: ArrayBuffer, fileName: string): Promise<void> {
+	if (DEBUG) {
+		console.log("[FileUpload] Checking collaboration state for sync:");
+		console.log("  - isInSession:", $collaborationStore.isInSession);
+		console.log("  - isHost:", $collaborationStore.isHost);
+	}
+
+	if ($collaborationStore.isInSession && $collaborationStore.isHost) {
+		// In session as host - upload file to session for immediate sync to viewers
+		if (DEBUG) {
+			console.log("[FileUpload] Uploading file to collaboration session...");
+		}
+
+		try {
+			await collaborationStore.uploadFile(arrayBuffer, fileName);
+			if (DEBUG) {
+				console.log("[FileUpload] File uploaded to session successfully");
+			}
+		} catch (error) {
+			console.error("[FileUpload] Failed to upload file to session:", error);
+			gdsStore.setError(
+				`File loaded locally but failed to upload to session: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	} else if (!$collaborationStore.isInSession) {
+		// Not in a session - upload as pending so it can be shared when session is created
+		if (DEBUG) {
+			console.log("[FileUpload] Uploading file as pending (for future session)...");
+		}
+
+		try {
+			await collaborationStore.uploadFilePending(arrayBuffer, fileName);
+			if (DEBUG) {
+				console.log("[FileUpload] File uploaded as pending successfully");
+			}
+		} catch (error) {
+			console.error("[FileUpload] Failed to upload pending file:", error);
+			// Don't show error - file is loaded locally, just won't be shareable
+			if (DEBUG) {
+				console.log("[FileUpload] File loaded locally but not uploaded for sharing");
+			}
+		}
+	} else if (DEBUG) {
+		// In session as viewer - don't upload (viewers receive files, not upload)
+		console.log("[FileUpload] Viewer in session - file loaded locally only");
+	}
+}
+
+/**
  * Handle example click
  */
 async function handleExampleClick(example: Example, event: Event) {
@@ -30,13 +84,16 @@ async function handleExampleClick(example: Example, event: Event) {
 	try {
 		gdsStore.setLoading(true, `Loading ${example.name}...`, 0);
 
-		await loadExample(example, (progress, message) => {
+		const { arrayBuffer, fileName } = await loadExample(example, (progress, message) => {
 			gdsStore.updateProgress(progress, message);
 		});
 
 		if (DEBUG) {
 			console.log(`[FileUpload] Example loaded: ${example.name}`);
 		}
+
+		// Sync to collaboration session (handles both pre-session and in-session cases)
+		await syncFileToCollaboration(arrayBuffer, fileName);
 	} catch (error) {
 		console.error("[FileUpload] Failed to load example:", error);
 		gdsStore.setError(
@@ -67,50 +124,8 @@ async function handleFile(file: File) {
 		// Load file locally first
 		await loadGDSIIFromBuffer(arrayBuffer, file.name);
 
-		// If in a session and is host, upload file to session
-		if (DEBUG) {
-			console.log("[FileUpload] Checking collaboration state:");
-			console.log("  - isInSession:", $collaborationStore.isInSession);
-			console.log("  - isHost:", $collaborationStore.isHost);
-		}
-
-		if ($collaborationStore.isInSession && $collaborationStore.isHost) {
-			if (DEBUG) {
-				console.log("[FileUpload] Uploading file to collaboration session...");
-			}
-
-			try {
-				await collaborationStore.uploadFile(arrayBuffer, file.name);
-				if (DEBUG) {
-					console.log("[FileUpload] File uploaded to session successfully");
-				}
-			} catch (error) {
-				console.error("[FileUpload] Failed to upload file to session:", error);
-				gdsStore.setError(
-					`File loaded locally but failed to upload to session: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-		} else if (!$collaborationStore.isInSession) {
-			// Not in a session - upload as pending so it can be shared when session is created
-			if (DEBUG) {
-				console.log("[FileUpload] Uploading file as pending (for future session)...");
-			}
-
-			try {
-				await collaborationStore.uploadFilePending(arrayBuffer, file.name);
-				if (DEBUG) {
-					console.log("[FileUpload] File uploaded as pending successfully");
-				}
-			} catch (error) {
-				console.error("[FileUpload] Failed to upload pending file:", error);
-				// Don't show error - file is loaded locally, just won't be shareable
-				if (DEBUG) {
-					console.log("[FileUpload] File loaded locally but not uploaded for sharing");
-				}
-			}
-		} else if (DEBUG) {
-			console.log("[FileUpload] Client in session - file loaded locally only");
-		}
+		// Sync to collaboration session (handles both pre-session and in-session cases)
+		await syncFileToCollaboration(arrayBuffer, file.name);
 	} catch (error) {
 		console.error("[FileUpload] Failed to read file:", error);
 		gdsStore.setError(

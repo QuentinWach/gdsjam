@@ -1,7 +1,7 @@
 # DevLog-001-120: Example Files Not Synced to Session Viewers
 
 **Date:** 2024-11-29
-**Status:** Open
+**Status:** Fixed
 **Severity:** Medium
 **Related:** Issue #9 (Show Examples on Front Page)
 
@@ -79,4 +79,24 @@ Option B: Refactor to share a common file handling function between regular uplo
 - Examples are fetched from external URLs (HuggingFace, GitHub)
 - Some examples are gzip compressed and need decompression before upload
 - File sizes range from 12KB to 700KB (should not cause issues)
+
+## Fix Applied
+
+Implemented Option B.1 - extracted sync logic to a shared helper function:
+
+1. **Modified `loadExample()`** in `src/lib/examples/exampleLoader.ts`:
+   - Changed return type from `Promise<void>` to `Promise<LoadExampleResult>`
+   - Returns `{ arrayBuffer, fileName }` for collaboration sync
+
+2. **Added `syncFileToCollaboration()` helper** in `src/components/ui/FileUpload.svelte`:
+   - Handles all three cases: in-session host, not-in-session, and viewer
+   - Single source of truth for collaboration sync logic
+
+3. **Updated both handlers** to use the helper:
+   - `handleFile()` - for regular file uploads
+   - `handleExampleClick()` - for example file loads
+
+Both scenarios now work correctly:
+- **Scenario A**: Load example → create session → viewers receive file
+- **Scenario B**: Create session → load example → viewers receive file immediately
 

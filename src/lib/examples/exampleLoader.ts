@@ -22,15 +22,24 @@ function decompressGzip(compressedData: ArrayBuffer): ArrayBuffer {
 }
 
 /**
+ * Result of loading an example file
+ */
+export interface LoadExampleResult {
+	arrayBuffer: ArrayBuffer;
+	fileName: string;
+}
+
+/**
  * Load an example GDS file
  *
  * @param example - The example to load
  * @param onProgress - Optional progress callback
+ * @returns The loaded file's ArrayBuffer and fileName for collaboration sync
  */
 export async function loadExample(
 	example: Example,
 	onProgress?: (progress: number, message: string) => void,
-): Promise<void> {
+): Promise<LoadExampleResult> {
 	if (DEBUG) {
 		console.log(`[exampleLoader] Loading example: ${example.name}`);
 	}
@@ -130,6 +139,9 @@ export async function loadExample(
 		if (DEBUG) {
 			console.log(`[exampleLoader] Example loaded successfully: ${example.name}`);
 		}
+
+		// Return the buffer and filename for collaboration sync
+		return { arrayBuffer, fileName };
 	} catch (error) {
 		console.error("[exampleLoader] Failed to load example:", error);
 
