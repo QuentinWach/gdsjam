@@ -5,6 +5,7 @@ import { DEBUG } from "../../lib/config";
 import { loadGDSIIFromBuffer } from "../../lib/utils/gdsLoader";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";
+import DesktopFileControls from "./DesktopFileControls.svelte";
 
 let showQRCode = $state(false);
 let qrCodeDataUrl = $state("");
@@ -233,6 +234,9 @@ async function handleFileInput(event: Event) {
 		</div>
 
 		<div class="session-controls">
+			<!-- Desktop file controls (Tauri only) -->
+			<DesktopFileControls />
+
 			{#if canUpload}
 				<button type="button" class="btn btn-upload" onclick={triggerFileInput}>
 					<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">

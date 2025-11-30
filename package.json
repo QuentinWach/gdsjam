@@ -13,12 +13,16 @@
 		"format": "biome format --write ./src",
 		"test": "vitest",
 		"test:ui": "vitest --ui",
-		"prepare": "husky"
+		"prepare": "husky",
+		"tauri": "tauri",
+		"tauri:dev": "tauri dev",
+		"tauri:build": "tauri build"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.6",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
 		"@tailwindcss/postcss": "^4.1.17",
+		"@tauri-apps/cli": "^2.9.5",
 		"@tsconfig/svelte": "^5.0.5",
 		"@types/node": "^24.10.0",
 		"@types/pako": "^2.0.4",
@@ -39,6 +43,9 @@
 		"ws": "^8.18.3"
 	},
 	"dependencies": {
+		"@tauri-apps/api": "^2.9.1",
+		"@tauri-apps/plugin-dialog": "^2.4.2",
+		"@tauri-apps/plugin-fs": "^2.4.4",
 		"dxf-parser": "^1.1.2",
 		"gdsii": "^0.1.0",
 		"pako": "^2.1.0",
