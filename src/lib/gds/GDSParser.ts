@@ -530,13 +530,15 @@ async function buildGDSDocument(
 
 					currentPolygon.points = points;
 					currentPolygon.boundingBox = calculateBoundingBox(points);
-				} else if (currentInstance && Array.isArray(data) && data.length >= 2) {
+				} else if (currentInstance && Array.isArray(data) && data.length >= 1) {
 					// For instances, XY contains the position
-					// Check if it's nested array format
-					if (Array.isArray(data[0])) {
+					// Check if it's nested array format [[x, y]] or flat format [x, y]
+					if (Array.isArray(data[0]) && data[0].length >= 2) {
+						// Nested array format: [[x, y]]
 						currentInstance.x = data[0][0];
 						currentInstance.y = data[0][1];
-					} else {
+					} else if (data.length >= 2) {
+						// Flat array format: [x, y]
 						currentInstance.x = data[0];
 						currentInstance.y = data[1];
 					}
@@ -618,18 +620,62 @@ async function buildGDSDocument(
 		);
 	}
 
-	// Calculate bounding boxes for cells
-	for (const cell of cells.values()) {
+	// Calculate bounding boxes for cells recursively (bottom-up)
+	// We need to process cells in dependency order: leaf cells first, then parents
+	const cellBBoxCalculated = new Set<string>();
+
+	function calculateCellBoundingBox(cellName: string): BoundingBox {
+		// Return cached result if already calculated
+		const cell = cells.get(cellName);
+		if (!cell) {
+			return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+		}
+
+		if (cellBBoxCalculated.has(cellName)) {
+			return cell.boundingBox;
+		}
+
 		let minX = Number.POSITIVE_INFINITY;
 		let minY = Number.POSITIVE_INFINITY;
 		let maxX = Number.NEGATIVE_INFINITY;
 		let maxY = Number.NEGATIVE_INFINITY;
 
+		// Include polygons in this cell
 		for (const polygon of cell.polygons) {
 			minX = Math.min(minX, polygon.boundingBox.minX);
 			minY = Math.min(minY, polygon.boundingBox.minY);
 			maxX = Math.max(maxX, polygon.boundingBox.maxX);
 			maxY = Math.max(maxY, polygon.boundingBox.maxY);
+		}
+
+		// Include transformed bounding boxes of referenced cells
+		for (const instance of cell.instances) {
+			// Recursively calculate referenced cell's bbox first
+			const refBBox = calculateCellBoundingBox(instance.cellRef);
+
+			// Transform the 4 corners of the referenced cell's bounding box
+			const corners = [
+				{ x: refBBox.minX, y: refBBox.minY },
+				{ x: refBBox.maxX, y: refBBox.minY },
+				{ x: refBBox.minX, y: refBBox.maxY },
+				{ x: refBBox.maxX, y: refBBox.maxY },
+			];
+
+			const rad = (instance.rotation * Math.PI) / 180;
+			const cos = Math.cos(rad);
+			const sin = Math.sin(rad);
+			const mx = instance.mirror ? -1 : 1;
+
+			for (const corner of corners) {
+				// Apply transformation: mirror, rotate, scale, translate
+				const transformedX = (corner.x * cos * mx - corner.y * sin) * instance.magnification + instance.x;
+				const transformedY = (corner.x * sin * mx + corner.y * cos) * instance.magnification + instance.y;
+
+				minX = Math.min(minX, transformedX);
+				minY = Math.min(minY, transformedY);
+				maxX = Math.max(maxX, transformedX);
+				maxY = Math.max(maxY, transformedY);
+			}
 		}
 
 		cell.boundingBox = {
@@ -638,6 +684,14 @@ async function buildGDSDocument(
 			maxX: maxX === Number.NEGATIVE_INFINITY ? 0 : maxX,
 			maxY: maxY === Number.NEGATIVE_INFINITY ? 0 : maxY,
 		};
+
+		cellBBoxCalculated.add(cellName);
+		return cell.boundingBox;
+	}
+
+	// Calculate bounding boxes for all cells
+	for (const cellName of cells.keys()) {
+		calculateCellBoundingBox(cellName);
 	}
 
 	// Find top cells (cells not referenced by others)

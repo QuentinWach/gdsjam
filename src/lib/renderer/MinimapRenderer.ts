@@ -307,6 +307,25 @@ export class MinimapRenderer {
 		// Batch all polygons by layer for efficient rendering
 		const layerGraphics = new Map<string, Graphics>();
 
+		// For hierarchical files (top cells have instances but few/no polygons), start with higher depth
+		// Otherwise we render nothing
+		let startDepth = 0;
+		let totalTopCellPolygons = 0;
+		let totalTopCellInstances = 0;
+
+		for (const cell of topCells) {
+			totalTopCellPolygons += cell.polygons.length;
+			totalTopCellInstances += cell.instances.length;
+		}
+
+		// If top cells have instances but very few polygons, it's hierarchical
+		const isHierarchical = totalTopCellInstances > 0 && totalTopCellPolygons < 10;
+		startDepth = isHierarchical ? 3 : 0; // Start at depth 3 for hierarchical files
+
+		if (DEBUG && isHierarchical) {
+			console.log(`[MinimapRenderer] Hierarchical file detected (${totalTopCellInstances} instances, ${totalTopCellPolygons} polygons in top cells), starting at depth ${startDepth}`);
+		}
+
 		for (const cell of topCells) {
 			await this.renderCellRecursive(
 				cell,
@@ -319,7 +338,7 @@ export class MinimapRenderer {
 				layerVisibility,
 				layerColors,
 				layerGraphics,
-				0,
+				startDepth,
 			);
 		}
 
@@ -418,41 +437,61 @@ export class MinimapRenderer {
 			this.stats.polygonCount++;
 		}
 
-		// Render child instances
-		for (const instance of cell.instances) {
-			const refCell = document.cells.get(instance.cellRef);
-			if (!refCell) continue;
+		// Render child instances (skip context info cells - they're just library references)
+		const isContextCell = cell.name.includes("$$$CONTEXT_INFO$$$");
+		if (!isContextCell) {
+			for (const instance of cell.instances) {
+				const refCell = document.cells.get(instance.cellRef);
+				if (!refCell) continue;
 
-			// Calculate transformed position
-			const rad = (rotation * Math.PI) / 180;
-			const cos = Math.cos(rad);
-			const sin = Math.sin(rad);
-			const mx = mirror ? -1 : 1;
+				// Calculate transformed position
+				// GDS transformation order: mirror → rotate → magnify → translate
 
-			const newX = x + (instance.x * cos * mx - instance.y * sin) * magnification;
-			const newY = y + (instance.x * sin * mx + instance.y * cos) * magnification;
-			const newRotation = rotation + instance.rotation;
-			const newMirror = mirror !== instance.mirror;
-			const newMagnification = magnification * instance.magnification;
+				// Step 1: Mirror instance position
+				let instX = mirror ? -instance.x : instance.x;
+				let instY = instance.y;
 
-			await this.renderCellRecursive(
-				refCell,
-				document,
-				newX,
-				newY,
-				newRotation,
-				newMirror,
-				newMagnification,
-				layerVisibility,
-				layerColors,
-				layerGraphics,
-				depth + 1,
-			);
+				// Step 2: Rotate instance position
+				const rad = (rotation * Math.PI) / 180;
+				const cos = Math.cos(rad);
+				const sin = Math.sin(rad);
+				const rotX = instX * cos - instY * sin;
+				const rotY = instX * sin + instY * cos;
+
+				// Step 3: Magnify
+				const magX = rotX * magnification;
+				const magY = rotY * magnification;
+
+				// Step 4: Translate
+				const newX = x + magX;
+				const newY = y + magY;
+
+				// Combine rotations and mirrors
+				// When parent is mirrored, child rotation is negated
+				const newRotation = mirror ? rotation - instance.rotation : rotation + instance.rotation;
+				const newMirror = mirror !== instance.mirror;
+				const newMagnification = magnification * instance.magnification;
+
+				await this.renderCellRecursive(
+					refCell,
+					document,
+					newX,
+					newY,
+					newRotation,
+					newMirror,
+					newMagnification,
+					layerVisibility,
+					layerColors,
+					layerGraphics,
+					depth + 1,
+				);
+			}
 		}
 	}
 
 	/**
 	 * Transform a single point by position, rotation, mirror, and magnification
+	 * GDS transformation order: mirror → rotate → magnify → translate
 	 */
 	private transformPoint(
 		px: number,
@@ -463,16 +502,23 @@ export class MinimapRenderer {
 		mirror: boolean,
 		magnification: number,
 	): { x: number; y: number } {
+		// Step 1: Mirror (flip X-axis if mirror=true)
+		let tx = mirror ? -px : px;
+		let ty = py;
+
+		// Step 2: Rotate
 		const rad = (rotation * Math.PI) / 180;
 		const cos = Math.cos(rad);
 		const sin = Math.sin(rad);
-		const mx = mirror ? -1 : 1;
+		const rx = tx * cos - ty * sin;
+		const ry = tx * sin + ty * cos;
 
-		// Apply transformation: mirror, rotate, scale, translate
-		const rx = (px * cos * mx - py * sin) * magnification + x;
-		const ry = (px * sin * mx + py * cos) * magnification + y;
+		// Step 3: Magnify
+		const mx = rx * magnification;
+		const my = ry * magnification;
 
-		return { x: rx, y: ry };
+		// Step 4: Translate
+		return { x: mx + x, y: my + y };
 	}
 
 	/**
