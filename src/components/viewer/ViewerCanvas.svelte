@@ -21,6 +21,14 @@ import MobileControls from "../ui/MobileControls.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import PerformancePanel from "../ui/PerformancePanel.svelte";
 
+// Props for fullscreen mode
+interface Props {
+	fullscreenMode?: boolean;
+	onToggleFullscreen?: (enabled: boolean) => void;
+}
+
+const { fullscreenMode = false, onToggleFullscreen }: Props = $props();
+
 let canvas: HTMLCanvasElement;
 let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
@@ -28,6 +36,12 @@ let panelsVisible = $state(false);
 let layerPanelVisible = $state(true);
 let minimapVisible = $state(true);
 let layerStoreInitialized = false;
+
+// F key hold detection for fullscreen
+const FULLSCREEN_HOLD_DURATION_MS = 500;
+let fKeyDownTime: number | null = null;
+let fKeyHoldTimer: ReturnType<typeof setTimeout> | null = null;
+let fKeyTriggeredFullscreen = false;
 
 // Minimap state
 let viewportBounds = $state<BoundingBox | null>(null);
@@ -85,11 +99,80 @@ function registerKeyboardShortcuts(): void {
 	]);
 }
 
+/**
+ * Handle F key down - start hold detection timer
+ * Short press (<500ms) = fit to view, Hold (>=500ms) = fullscreen
+ */
+function handleFKeyDown(event: KeyboardEvent): void {
+	// Only handle F key
+	if (event.code !== "KeyF") return;
+
+	// Don't handle in input fields
+	const target = event.target as HTMLElement;
+	if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+		return;
+	}
+
+	// Don't handle with modifiers
+	if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+
+	// Ignore repeat events (key held down)
+	if (event.repeat) return;
+
+	// Prevent default to avoid any browser shortcuts
+	event.preventDefault();
+
+	// Record keydown time and start timer
+	fKeyDownTime = Date.now();
+	fKeyTriggeredFullscreen = false;
+
+	// Start hold detection timer
+	fKeyHoldTimer = setTimeout(() => {
+		// Hold threshold reached - trigger fullscreen
+		fKeyTriggeredFullscreen = true;
+		if (onToggleFullscreen) {
+			onToggleFullscreen(true);
+			if (DEBUG) console.log("[ViewerCanvas] F key hold detected - entering fullscreen");
+		}
+	}, FULLSCREEN_HOLD_DURATION_MS);
+}
+
+/**
+ * Handle F key up - if short press, trigger fit to view
+ */
+function handleFKeyUp(event: KeyboardEvent): void {
+	// Only handle F key
+	if (event.code !== "KeyF") return;
+
+	// Clear the hold timer
+	if (fKeyHoldTimer) {
+		clearTimeout(fKeyHoldTimer);
+		fKeyHoldTimer = null;
+	}
+
+	// If we didn't trigger fullscreen (short press), do fit to view
+	if (!fKeyTriggeredFullscreen && fKeyDownTime !== null) {
+		const holdDuration = Date.now() - fKeyDownTime;
+		if (holdDuration < FULLSCREEN_HOLD_DURATION_MS) {
+			renderer?.fitToView();
+			if (DEBUG) console.log("[ViewerCanvas] F key short press - fit to view");
+		}
+	}
+
+	// Reset state
+	fKeyDownTime = null;
+	fKeyTriggeredFullscreen = false;
+}
+
 onMount(() => {
 	if (DEBUG) console.log("[ViewerCanvas] Initializing...");
 
 	// Register keyboard shortcuts via centralized manager
 	registerKeyboardShortcuts();
+
+	// Register F key handlers for hold detection (fit view vs fullscreen)
+	window.addEventListener("keydown", handleFKeyDown);
+	window.addEventListener("keyup", handleFKeyUp);
 
 	// Initialize renderer asynchronously
 	if (canvas) {
@@ -145,6 +228,16 @@ onMount(() => {
 	return () => {
 		// Unregister keyboard shortcuts on unmount
 		KeyboardShortcutManager.unregisterByOwner(KEYBOARD_OWNER);
+
+		// Remove F key handlers
+		window.removeEventListener("keydown", handleFKeyDown);
+		window.removeEventListener("keyup", handleFKeyUp);
+
+		// Clear any pending timer
+		if (fKeyHoldTimer) {
+			clearTimeout(fKeyHoldTimer);
+			fKeyHoldTimer = null;
+		}
 	};
 });
 
@@ -348,9 +441,11 @@ function toggleMinimap() {
 		onTogglePerformance={() => { panelsVisible = !panelsVisible; }}
 		onToggleLayers={() => { layerPanelVisible = !layerPanelVisible; }}
 		onToggleMinimap={toggleMinimap}
+		onToggleFullscreen={onToggleFullscreen}
 		performanceVisible={panelsVisible}
 		minimapVisible={minimapVisible}
 		layersVisible={layerPanelVisible}
+		{fullscreenMode}
 	/>
 
 	<!-- Follow mode toast -->
