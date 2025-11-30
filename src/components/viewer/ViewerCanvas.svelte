@@ -58,11 +58,13 @@ const isInSession = $derived($collaborationStore.isInSession);
 $effect(() => {
 	// Access fullscreenMode to track it
 	const _fullscreen = fullscreenMode;
+	// Capture renderer reference before async operation
+	const currentRenderer = renderer;
 	// Schedule resize after DOM updates
-	if (renderer) {
+	if (currentRenderer) {
 		// Use requestAnimationFrame to wait for DOM layout to update
 		requestAnimationFrame(() => {
-			renderer?.triggerResize();
+			currentRenderer.triggerResize();
 		});
 	}
 });
