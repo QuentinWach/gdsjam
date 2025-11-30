@@ -129,12 +129,19 @@ async function startWatching(filePath: string) {
 	}
 
 	// Start new watcher
-	unwatchFn = await watchFile(filePath, async () => {
-		if (DEBUG) {
-			console.log("[DesktopFileControls] File changed, reloading...");
-		}
-		await loadFileFromPath(filePath);
-	});
+	unwatchFn = await watchFile(
+		filePath,
+		async () => {
+			if (DEBUG) {
+				console.log("[DesktopFileControls] File changed, reloading...");
+			}
+			await loadFileFromPath(filePath);
+		},
+		(error: string) => {
+			console.error("[DesktopFileControls] File watch error:", error);
+			gdsStore.setError(`File watch error: ${error}`);
+		},
+	);
 
 	if (DEBUG) {
 		console.log("[DesktopFileControls] Started watching file");

@@ -2,10 +2,14 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{Manager, State, Emitter};
-use notify_debouncer_full::{new_debouncer, notify::{RecursiveMode, Watcher}, DebounceEventResult};
+use notify_debouncer_full::{new_debouncer, notify::{RecursiveMode, Watcher}, DebounceEventResult, Debouncer, FileIdMap};
 
 // State to hold the current watched file path
 struct WatchedFile(Arc<Mutex<Option<PathBuf>>>);
+
+// State to hold the file watcher debouncer
+type DebouncerType = Debouncer<notify_debouncer_full::notify::RecommendedWatcher, FileIdMap>;
+struct FileWatcher(Arc<Mutex<Option<DebouncerType>>>);
 
 // Command to open file dialog and return the selected file path
 #[tauri::command]
@@ -26,6 +30,7 @@ async fn watch_file(
     path: String,
     app: tauri::AppHandle,
     watched_file: State<'_, WatchedFile>,
+    file_watcher: State<'_, FileWatcher>,
 ) -> std::result::Result<(), String> {
     let path_buf = PathBuf::from(&path);
 
@@ -37,7 +42,7 @@ async fn watch_file(
 
     // Create a debounced file watcher (500ms debounce)
     let app_handle = app.clone();
-    let mut debouncer = new_debouncer(
+    let debouncer = new_debouncer(
         Duration::from_millis(500),
         None,
         move |result: DebounceEventResult| {
@@ -53,31 +58,53 @@ async fn watch_file(
                 Err(errors) => {
                     for error in errors {
                         log::error!("File watch error: {:?}", error);
+                        // Emit error event to frontend so users have visibility
+                        let error_msg = format!("File watch error: {}", error);
+                        let _ = app_handle.emit("file-watch-error", error_msg);
                     }
                 }
             }
         },
     ).map_err(|e| format!("Failed to create file watcher: {}", e))?;
 
-    // Watch the file
-    debouncer
-        .watcher()
-        .watch(&path_buf, RecursiveMode::NonRecursive)
-        .map_err(|e| format!("Failed to watch file: {}", e))?;
+    // Store the debouncer before watching to ensure proper cleanup
+    {
+        let mut watcher = file_watcher.0.lock().unwrap();
+        *watcher = Some(debouncer);
+    }
 
-    // Store the debouncer in app state to keep it alive
-    // Note: In a production app, you'd want to manage this more carefully
-    // For now, we'll just let it run until the app closes
-    std::mem::forget(debouncer);
+    // Watch the file
+    {
+        let mut watcher = file_watcher.0.lock().unwrap();
+        if let Some(ref mut debouncer) = *watcher {
+            debouncer
+                .watcher()
+                .watch(&path_buf, RecursiveMode::NonRecursive)
+                .map_err(|e| format!("Failed to watch file: {}", e))?;
+        }
+    }
 
     Ok(())
 }
 
 // Command to stop watching the current file
 #[tauri::command]
-async fn unwatch_file(watched_file: State<'_, WatchedFile>) -> std::result::Result<(), String> {
-    let mut watched = watched_file.0.lock().unwrap();
-    *watched = None;
+async fn unwatch_file(
+    watched_file: State<'_, WatchedFile>,
+    file_watcher: State<'_, FileWatcher>,
+) -> std::result::Result<(), String> {
+    // Clear the watched file state
+    {
+        let mut watched = watched_file.0.lock().unwrap();
+        *watched = None;
+    }
+
+    // Drop the debouncer to stop watching
+    {
+        let mut watcher = file_watcher.0.lock().unwrap();
+        *watcher = None;
+    }
+
     Ok(())
 }
 
@@ -120,6 +147,7 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .manage(WatchedFile(Arc::new(Mutex::new(None))))
+    .manage(FileWatcher(Arc::new(Mutex::new(None))))
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

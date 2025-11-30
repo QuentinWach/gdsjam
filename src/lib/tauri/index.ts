@@ -44,9 +44,14 @@ export async function openFileDialog(): Promise<string | null> {
  * Start watching a file for changes
  * @param path - The file path to watch
  * @param onChange - Callback function to call when the file changes
+ * @param onError - Optional callback function to call when a watch error occurs
  * @returns A function to stop watching the file
  */
-export async function watchFile(path: string, onChange: () => void): Promise<() => void> {
+export async function watchFile(
+	path: string,
+	onChange: () => void,
+	onError?: (error: string) => void,
+): Promise<() => void> {
 	if (!isTauri()) {
 		if (DEBUG) {
 			console.log("[Tauri] Not in Tauri mode, file watching not available");
@@ -59,11 +64,19 @@ export async function watchFile(path: string, onChange: () => void): Promise<() 
 		await invoke("watch_file", { path });
 
 		// Listen for file change events
-		const unlisten = await listen("file-changed", () => {
+		const unlistenChange = await listen("file-changed", () => {
 			if (DEBUG) {
 				console.log("[Tauri] File changed:", path);
 			}
 			onChange();
+		});
+
+		// Listen for file watch error events
+		const unlistenError = await listen<string>("file-watch-error", (event) => {
+			console.error("[Tauri] File watch error:", event.payload);
+			if (onError) {
+				onError(event.payload);
+			}
 		});
 
 		if (DEBUG) {
@@ -72,7 +85,8 @@ export async function watchFile(path: string, onChange: () => void): Promise<() 
 
 		// Return a function to stop watching
 		return async () => {
-			unlisten();
+			unlistenChange();
+			unlistenError();
 			await invoke("unwatch_file");
 			if (DEBUG) {
 				console.log("[Tauri] Stopped watching file:", path);
