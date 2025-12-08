@@ -698,7 +698,7 @@ function createCollaborationStore() {
 
 		/**
 		 * Enable viewport broadcast (host only)
-		 * Also auto-enables fullscreen mode for all users
+		 * Also auto-enables fullscreen mode and layer sync for all users
 		 */
 		enableBroadcast: () => {
 			update((state) => {
@@ -707,22 +707,27 @@ function createCollaborationStore() {
 				state.sessionManager.enableViewportBroadcast();
 				// Auto-enable fullscreen when broadcast starts
 				state.sessionManager.enableFullscreen();
+				// Auto-enable layer broadcast when broadcast starts (Issue #46)
+				state.sessionManager.enableLayerBroadcast();
 
 				if (DEBUG) {
-					console.log("[collaborationStore] Viewport broadcast enabled (with fullscreen)");
+					console.log(
+						"[collaborationStore] Viewport broadcast enabled (with fullscreen & layer sync)",
+					);
 				}
 
 				return {
 					...state,
 					isBroadcasting: true,
 					isFullscreenEnabled: true,
+					isLayerBroadcasting: true,
 				};
 			});
 		},
 
 		/**
 		 * Disable viewport broadcast (host only)
-		 * Also disables fullscreen mode
+		 * Also disables fullscreen mode and layer sync
 		 */
 		disableBroadcast: () => {
 			update((state) => {
@@ -731,22 +736,27 @@ function createCollaborationStore() {
 				state.sessionManager.disableViewportBroadcast();
 				// Disable fullscreen when broadcast stops
 				state.sessionManager.disableFullscreen();
+				// Disable layer broadcast when broadcast stops
+				state.sessionManager.disableLayerBroadcast();
 
 				if (DEBUG) {
-					console.log("[collaborationStore] Viewport broadcast disabled (with fullscreen)");
+					console.log(
+						"[collaborationStore] Viewport broadcast disabled (with fullscreen & layer sync)",
+					);
 				}
 
 				return {
 					...state,
 					isBroadcasting: false,
 					isFullscreenEnabled: false,
+					isLayerBroadcasting: false,
 				};
 			});
 		},
 
 		/**
 		 * Toggle viewport broadcast (host only)
-		 * Also toggles fullscreen mode
+		 * Also toggles fullscreen mode and layer sync
 		 */
 		toggleBroadcast: () => {
 			update((state) => {
@@ -755,16 +765,18 @@ function createCollaborationStore() {
 				if (state.isBroadcasting) {
 					state.sessionManager.disableViewportBroadcast();
 					state.sessionManager.disableFullscreen();
+					state.sessionManager.disableLayerBroadcast();
 				} else {
 					state.sessionManager.enableViewportBroadcast();
 					state.sessionManager.enableFullscreen();
+					state.sessionManager.enableLayerBroadcast();
 				}
 
 				if (DEBUG) {
 					console.log(
 						"[collaborationStore] Viewport broadcast toggled:",
 						!state.isBroadcasting,
-						"(with fullscreen)",
+						"(with fullscreen & layer sync)",
 					);
 				}
 
@@ -772,6 +784,7 @@ function createCollaborationStore() {
 					...state,
 					isBroadcasting: !state.isBroadcasting,
 					isFullscreenEnabled: !state.isBroadcasting,
+					isLayerBroadcasting: !state.isBroadcasting,
 				};
 			});
 		},
