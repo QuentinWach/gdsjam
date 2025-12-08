@@ -8,7 +8,6 @@
  * - Handle peer connection events
  */
 
-// @ts-expect-error - y-protocols types may not be available
 import { Awareness } from "y-protocols/awareness.js";
 import { WebrtcProvider } from "y-webrtc";
 import * as Y from "yjs";
@@ -125,7 +124,7 @@ export class YjsProvider {
 
 		// Listen to Y.js document updates
 		if (DEBUG) {
-			this.ydoc.on("update", (update: Uint8Array, origin: any) => {
+			this.ydoc.on("update", (_update: Uint8Array, origin: any) => {
 				console.log("[YjsProvider] Y.js document updated, origin:", origin);
 				const sessionMap = this.ydoc.getMap("session");
 				console.log("  - Session map keys:", Array.from(sessionMap.keys()));
@@ -150,19 +149,15 @@ export class YjsProvider {
 
 		// Log WebRTC connection status and listen to internal events
 		if (DEBUG && this.provider.room) {
-			// @ts-expect-error - accessing internal property for debugging
-			const room = this.provider.room;
+			const room = this.provider.room as any;
 			console.log("[YjsProvider] WebRTC room created, waiting for peer connections...");
 
 			// Access the WebRTC peer connections map
-			// @ts-expect-error - accessing internal property for debugging
 			if (room.webrtcConns) {
 				console.log("[YjsProvider] WebRTC connections map exists");
 
 				// Monitor when new peer connections are created
-				// @ts-expect-error - accessing internal property for debugging
 				const originalSet = room.webrtcConns.set.bind(room.webrtcConns);
-				// @ts-expect-error - accessing internal property for debugging
 				room.webrtcConns.set = (key: string, value: any) => {
 					console.log("[YjsProvider] New WebRTC peer connection created:", key);
 
@@ -201,9 +196,7 @@ export class YjsProvider {
 			}
 
 			// Listen to signaling messages
-			// @ts-expect-error
 			if (room.provider && room.provider.on) {
-				// @ts-expect-error
 				room.provider.on("message", (data: any) => {
 					console.log("[YjsProvider] Signaling message received:", data);
 				});
@@ -362,7 +355,7 @@ export class YjsProvider {
 			}
 
 			// If already synced, resolve immediately
-			if (this.provider.synced) {
+			if ((this.provider as any).synced) {
 				if (DEBUG) {
 					console.log("[YjsProvider] Already synced, no need to wait");
 				}

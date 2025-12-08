@@ -16,7 +16,7 @@ class CollaborationSyncError extends Error {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Svelte class binding
 let isDragging = $state(false);
-let fileInputElement: HTMLInputElement;
+let fileInputElement = $state<HTMLInputElement>();
 let loadingExampleId: string | null = $state(null);
 
 /**
@@ -208,7 +208,7 @@ function handleDrop(event: DragEvent) {
  */
 // biome-ignore lint/correctness/noUnusedVariables: Used in template
 function triggerFileInput() {
-	fileInputElement.click();
+	fileInputElement?.click();
 }
 </script>
 

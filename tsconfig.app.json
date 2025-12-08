@@ -15,7 +15,12 @@
 		"noUnusedParameters": true,
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": true,
-		"moduleDetection": "force"
+		"moduleDetection": "force",
+		/**
+		 * Skip type checking of declaration files to avoid conflicts
+		 * with third-party packages (e.g., pixi.js's @types/css-font-loading-module)
+		 */
+		"skipLibCheck": true
 	},
 	"include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"]
 }

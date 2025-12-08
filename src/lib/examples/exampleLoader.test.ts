@@ -33,13 +33,13 @@ const mockExample: Example = {
 };
 
 // Reserved for future compressed file tests
-const _mockCompressedExample: Example = {
-	...mockExample,
-	id: "test-compressed",
-	name: "Test Compressed",
-	url: "https://example.com/test.gds.gz",
-	isCompressed: true,
-};
+// const _mockCompressedExample: Example = {
+// 	...mockExample,
+// 	id: "test-compressed",
+// 	name: "Test Compressed",
+// 	url: "https://example.com/test.gds.gz",
+// 	isCompressed: true,
+// };
 
 describe("loadExample", () => {
 	beforeEach(() => {

@@ -137,10 +137,7 @@ export class FullscreenSync {
 
 		for (const [, state] of states) {
 			const awarenessState = state as AwarenessState | undefined;
-			if (
-				awarenessState?.userId === hostId &&
-				awarenessState.fullscreenEnabled !== undefined
-			) {
+			if (awarenessState?.userId === hostId && awarenessState.fullscreenEnabled !== undefined) {
 				return awarenessState.fullscreenEnabled;
 			}
 		}
@@ -254,4 +251,3 @@ export class FullscreenSync {
 		if (DEBUG) console.log("[FullscreenSync] Destroyed");
 	}
 }
-

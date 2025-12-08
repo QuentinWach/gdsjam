@@ -117,7 +117,6 @@ const PARTICIPANT_STALE_THRESHOLD = 15000; // 15 seconds
 export class ParticipantManager {
 	private yjsProvider: YjsProvider;
 	private userId: string;
-	private sessionId: string | null = null;
 	private localDisplayName: string | null = null;
 	private localColor: string;
 	private participantChangedCallbacks: Array<(participants: YjsParticipant[]) => void> = [];
@@ -138,7 +137,6 @@ export class ParticipantManager {
 	 * Initialize participant manager for a session
 	 */
 	initialize(sessionId: string): void {
-		this.sessionId = sessionId;
 		this.setupParticipantObserver();
 		this.startHeartbeat();
 		this.startStaleCleanup();
@@ -512,7 +510,6 @@ export class ParticipantManager {
 		this.stopHeartbeat();
 		this.stopStaleCleanup();
 		this.participantChangedCallbacks = [];
-		this.sessionId = null;
 		this.localDisplayName = null;
 
 		if (DEBUG) {

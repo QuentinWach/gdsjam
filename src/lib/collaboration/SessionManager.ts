@@ -427,6 +427,9 @@ export class SessionManager {
 			// Must happen after sync so we have the host's broadcast state
 			this.viewportSync?.notifyCurrentBroadcastState();
 
+			// Notify FullscreenSync of current fullscreen state (for late joiners)
+			this.fullscreenSync?.notifyCurrentFullscreenState();
+
 			if (DEBUG) {
 				console.log("[SessionManager] VIEWER PATH complete - synced from host/peers");
 			}
