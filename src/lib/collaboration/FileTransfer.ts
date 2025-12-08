@@ -292,12 +292,12 @@ export class FileTransfer {
 		}
 
 		return {
-			fileId: sessionMap.get("fileId"),
-			fileName: sessionMap.get("fileName"),
-			fileSize: sessionMap.get("fileSize"),
-			fileHash: sessionMap.get("fileHash"),
-			uploadedBy: sessionMap.get("uploadedBy"),
-			uploadedAt: sessionMap.get("uploadedAt"),
+			fileId: sessionMap.get("fileId") as string | undefined,
+			fileName: sessionMap.get("fileName") as string | undefined,
+			fileSize: sessionMap.get("fileSize") as number | undefined,
+			fileHash: sessionMap.get("fileHash") as string | undefined,
+			uploadedBy: sessionMap.get("uploadedBy") as string | undefined,
+			uploadedAt: sessionMap.get("uploadedAt") as number | undefined,
 		};
 	}
 }

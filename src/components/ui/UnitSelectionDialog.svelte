@@ -13,7 +13,7 @@ interface Props {
 
 const { visible, defaultUnit, onConfirm, onCancel }: Props = $props();
 
-const selectedUnit = $state(defaultUnit);
+let selectedUnit = $state(defaultUnit);
 
 const unitOptions = [
 	{ value: "0.001", label: "Millimeters (mm)", meters: 0.001 },

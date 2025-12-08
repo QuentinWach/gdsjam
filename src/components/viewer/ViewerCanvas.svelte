@@ -29,11 +29,18 @@ interface Props {
 
 const { fullscreenMode = false, onToggleFullscreen }: Props = $props();
 
+// Mobile breakpoint (matches CSS media query)
+const MOBILE_BREAKPOINT = 1024; // pixels
+
 let canvas: HTMLCanvasElement;
 let renderer = $state<PixiRenderer | null>(null);
 let lastRenderedDocument: GDSDocument | null = null;
 let panelsVisible = $state(false);
-let layerPanelVisible = $state(true);
+// Layer panel: visible by default on desktop, hidden on mobile
+// Initial state is just a hint - CSS media query (max-width: 1023px) handles actual visibility
+let layerPanelVisible = $state(
+	typeof window !== "undefined" && window.innerWidth >= MOBILE_BREAKPOINT,
+);
 let minimapVisible = $state(true);
 let layerStoreInitialized = false;
 
@@ -50,14 +57,13 @@ let participantViewports = $state<ParticipantViewport[]>([]);
 // Viewport sync state
 const isHost = $derived($collaborationStore.isHost);
 const isFollowing = $derived($collaborationStore.isFollowing);
-const isBroadcasting = $derived($collaborationStore.isBroadcasting);
 const isInSession = $derived($collaborationStore.isInSession);
 
 // Trigger renderer resize when fullscreen mode changes
 // The layout changes when header/footer are hidden, so canvas needs to resize
 $effect(() => {
 	// Access fullscreenMode to track it
-	const _fullscreen = fullscreenMode;
+	fullscreenMode;
 	// Capture renderer reference before async operation
 	const currentRenderer = renderer;
 	// Schedule resize after DOM updates
@@ -357,8 +363,19 @@ function setupViewportSync() {
 		},
 	});
 
+	// Set up callbacks for fullscreen sync
+	sessionManager.setFullscreenSyncCallbacks({
+		onFullscreenStateChanged: (enabled: boolean, _hostId: string | null) => {
+			collaborationStore.handleFullscreenStateChanged(enabled, _hostId);
+			// Trigger fullscreen mode change in App.svelte via callback
+			if (onToggleFullscreen) {
+				onToggleFullscreen(enabled);
+			}
+		},
+	});
+
 	if (DEBUG) {
-		console.log("[ViewerCanvas] Viewport sync set up");
+		console.log("[ViewerCanvas] Viewport, layer, and fullscreen sync set up");
 	}
 }
 

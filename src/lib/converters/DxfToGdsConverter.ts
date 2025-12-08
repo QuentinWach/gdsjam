@@ -395,6 +395,7 @@ export async function convertDxfToGds(
 		polygons,
 		instances: [],
 		boundingBox: { minX, minY, maxX, maxY },
+		skipInMinimap: false, // DXF files typically have single top cell, don't skip
 	};
 
 	// Create GDS document
