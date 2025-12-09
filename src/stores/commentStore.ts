@@ -10,7 +10,7 @@
  * - Collaboration: Host controls viewer permissions, rate limiting enforced
  */
 
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import type { Comment, CommentPermissions } from "../lib/collaboration/types";
 import type {
 	CommentDisplayState,
@@ -47,45 +47,76 @@ function createCommentStore() {
 
 		/**
 		 * Initialize for a new file
+		 * Only reinitializes if fileIdentifier has changed (different file)
 		 */
 		initializeForFile: (fileName: string, fileSize: number) => {
 			const fileIdentifier = `${fileName}_${fileSize}`;
-			if (DEBUG) {
-				console.log(`[commentStore] Initializing for file: ${fileIdentifier}`);
+
+			update((state) => {
+				// Skip if already initialized for this file
+				if (state.fileIdentifier === fileIdentifier) {
+					if (DEBUG) {
+						console.log(`[commentStore] Already initialized for file: ${fileIdentifier}, skipping`);
+					}
+					return state;
+				}
+
+				if (DEBUG) {
+					console.log(`[commentStore] Initializing for file: ${fileIdentifier}`);
+				}
+
+				return {
+					...state,
+					fileIdentifier,
+					comments: new Map(),
+					commentModeActive: false,
+					allCommentsVisible: true,
+					previousVisibilityState: true,
+					rateLimits: new Map(),
+				};
+			});
+
+			// Load from localStorage (solo mode) - only if we actually initialized
+			const currentState = get({ subscribe });
+			if (currentState.fileIdentifier === fileIdentifier) {
+				commentStore.loadFromLocalStorage(fileIdentifier);
 			}
-
-			update((state) => ({
-				...state,
-				fileIdentifier,
-				comments: new Map(),
-				commentModeActive: false,
-				allCommentsVisible: true,
-				previousVisibilityState: true,
-				rateLimits: new Map(),
-			}));
-
-			// Load from localStorage (solo mode)
-			commentStore.loadFromLocalStorage(fileIdentifier);
 		},
 
 		/**
 		 * Initialize for collaboration session
+		 * Note: Does NOT clear comments - Y.js sync will populate them via syncFromYjs
+		 * Only reinitializes if fileIdentifier has changed (different file)
 		 */
 		initializeForSession: (fileHash: string, permissions: CommentPermissions) => {
-			if (DEBUG) {
-				console.log(`[commentStore] Initializing for session: ${fileHash}`);
-			}
+			update((state) => {
+				// Skip if already initialized for this file
+				if (state.fileIdentifier === fileHash) {
+					if (DEBUG) {
+						console.log(`[commentStore] Already initialized for session: ${fileHash}, skipping`);
+					}
+					// Just update permissions, don't reset anything else
+					return {
+						...state,
+						permissions,
+					};
+				}
 
-			update((state) => ({
-				...state,
-				fileIdentifier: fileHash,
-				comments: new Map(),
-				commentModeActive: false,
-				allCommentsVisible: true,
-				previousVisibilityState: true,
-				rateLimits: new Map(),
-				permissions,
-			}));
+				if (DEBUG) {
+					console.log(`[commentStore] Initializing for session: ${fileHash}`);
+				}
+
+				return {
+					...state,
+					fileIdentifier: fileHash,
+					comments: new Map(), // Clear comments only when switching files
+					commentModeActive: false,
+					allCommentsVisible: true,
+					previousVisibilityState: true,
+					rateLimits: new Map(),
+					permissions,
+				};
+			});
 		},
 
 		/**
