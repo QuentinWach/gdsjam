@@ -16,6 +16,9 @@ import { DEBUG } from "../config";
 import type { Comment, CommentPermissions } from "./types";
 import type { YjsProvider } from "./YjsProvider";
 
+// Heartbeat interval for comment sync polling (milliseconds)
+const COMMENT_SYNC_HEARTBEAT = 5000; // 5 seconds
+
 export interface CommentSyncCallbacks {
 	onCommentsChanged?: (comments: Comment[]) => void;
 	onPermissionsChanged?: (permissions: CommentPermissions) => void;
@@ -26,6 +29,8 @@ export class CommentSync {
 	private callbacks: CommentSyncCallbacks;
 	private commentsArray: Y.Array<Comment> | null = null;
 	private sessionMap: Y.Map<any> | null = null;
+	private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+	private lastCommentCount: number = 0;
 
 	constructor(yjsProvider: YjsProvider, _userId: string, callbacks: CommentSyncCallbacks = {}) {
 		this.yjsProvider = yjsProvider;
@@ -48,8 +53,9 @@ export class CommentSync {
 		this.commentsArray.observe(() => {
 			const comments = this.commentsArray!.toArray();
 			if (DEBUG) {
-				console.log("[CommentSync] Comments changed:", comments.length);
+				console.log("[CommentSync] Comments changed via observer:", comments.length);
 			}
+			this.lastCommentCount = comments.length;
 			this.callbacks.onCommentsChanged?.(comments);
 		});
 
@@ -74,6 +80,8 @@ export class CommentSync {
 			| CommentPermissions
 			| undefined;
 
+		this.lastCommentCount = initialComments.length;
+
 		if (initialComments.length > 0) {
 			this.callbacks.onCommentsChanged?.(initialComments);
 		}
@@ -81,8 +89,57 @@ export class CommentSync {
 			this.callbacks.onPermissionsChanged?.(initialPermissions);
 		}
 
+		// Start heartbeat polling as fallback for missed Y.js observer events
+		this.startHeartbeat();
+
 		if (DEBUG) {
 			console.log("[CommentSync] Initialized with", initialComments.length, "comments");
+		}
+	}
+
+	/**
+	 * Start heartbeat polling to ensure comments stay synced
+	 * This is a fallback in case Y.js observers miss updates
+	 */
+	private startHeartbeat(): void {
+		this.stopHeartbeat();
+		this.heartbeatInterval = setInterval(() => {
+			this.pollComments();
+		}, COMMENT_SYNC_HEARTBEAT);
+
+		if (DEBUG) {
+			console.log("[CommentSync] Started heartbeat polling");
+		}
+	}
+
+	/**
+	 * Stop heartbeat polling
+	 */
+	private stopHeartbeat(): void {
+		if (this.heartbeatInterval) {
+			clearInterval(this.heartbeatInterval);
+			this.heartbeatInterval = null;
+		}
+	}
+
+	/**
+	 * Poll comments from Y.js and trigger callback if changed
+	 */
+	private pollComments(): void {
+		if (!this.commentsArray) return;
+
+		const comments = this.commentsArray.toArray();
+		if (comments.length !== this.lastCommentCount) {
+			if (DEBUG) {
+				console.log(
+					"[CommentSync] Comments changed via heartbeat poll:",
+					this.lastCommentCount,
+					"->",
+					comments.length,
+				);
+			}
+			this.lastCommentCount = comments.length;
+			this.callbacks.onCommentsChanged?.(comments);
 		}
 	}
 
@@ -155,6 +212,7 @@ export class CommentSync {
 	 * Cleanup
 	 */
 	destroy(): void {
+		this.stopHeartbeat();
 		this.commentsArray = null;
 		this.sessionMap = null;
 		if (DEBUG) console.log("[CommentSync] Destroyed");

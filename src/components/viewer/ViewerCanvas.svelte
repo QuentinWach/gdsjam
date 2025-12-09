@@ -697,6 +697,9 @@ function setupViewportSync() {
 				y: newY,
 				scale: viewport.scale,
 			});
+
+			// Increment viewportVersion to trigger comment bubble position updates
+			viewportVersion++;
 		},
 
 		// When broadcast state changes
