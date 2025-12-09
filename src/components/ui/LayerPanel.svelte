@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { DEBUG } from "../../lib/config";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { gdsStore } from "../../stores/gdsStore";
@@ -55,6 +55,45 @@ function initDefaultPosition() {
 	if (panelPosition.x === -1 || panelPosition.y === -1) {
 		panelPosition = { x: window.innerWidth - 290, y: 150 };
 	}
+}
+
+// Constrain panel position to be within viewport bounds
+function constrainPosition() {
+	const viewportWidth = window.innerWidth;
+	const viewportHeight = window.innerHeight;
+
+	// Panel width is 280px (from CSS)
+	const panelWidth = 280;
+
+	// Constrain position
+	let newX = panelPosition.x;
+	let newY = panelPosition.y;
+
+	// Ensure at least part of the panel is visible
+	const minVisiblePx = 50;
+
+	if (newX + panelWidth < minVisiblePx) {
+		newX = minVisiblePx - panelWidth;
+	}
+	if (newX > viewportWidth - minVisiblePx) {
+		newX = viewportWidth - minVisiblePx;
+	}
+	if (newY < 0) {
+		newY = 0;
+	}
+	if (newY > viewportHeight - minVisiblePx) {
+		newY = viewportHeight - minVisiblePx;
+	}
+
+	if (newX !== panelPosition.x || newY !== panelPosition.y) {
+		panelPosition = { x: newX, y: newY };
+		saveState();
+	}
+}
+
+// Handle window resize
+function handleWindowResize() {
+	constrainPosition();
 }
 
 // Drag handlers
@@ -121,6 +160,11 @@ function handleTouchEnd(e: TouchEvent) {
 onMount(() => {
 	loadState();
 	initDefaultPosition();
+	window.addEventListener("resize", handleWindowResize);
+});
+
+onDestroy(() => {
+	window.removeEventListener("resize", handleWindowResize);
 });
 
 const storeState = $derived($layerStore);
