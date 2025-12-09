@@ -58,7 +58,7 @@ function handleTimestampClick(event: MouseEvent | KeyboardEvent): void {
 	{:else}
 		<div class="content">
 			<div class="header">
-				<span class="author">{comment.authorName}</span>
+				<span class="author" style="color: {comment.authorColor}">{comment.authorName}</span>
 				<span
 					class="timestamp"
 					onclick={handleTimestampClick}
@@ -130,7 +130,7 @@ function handleTimestampClick(event: MouseEvent | KeyboardEvent): void {
 }
 
 .author {
-	color: rgba(255, 255, 255, 0.9);
+	/* Color set via inline style from comment.authorColor */
 	font-size: 11px;
 	font-weight: 600;
 }
