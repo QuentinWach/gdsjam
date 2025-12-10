@@ -23,8 +23,6 @@ const isDesktop = isTauri();
 const hasFile = $derived(currentFilePath !== null || $gdsStore.fileName !== null);
 const canWatch = $derived(currentFilePath !== null); // Can only watch if we have a file path
 
-
-
 /**
  * Open file dialog and load the selected file
  */

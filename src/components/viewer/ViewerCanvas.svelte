@@ -386,7 +386,9 @@ function handleCommentSubmit(content: string): void {
 		// Check rate limit
 		if (!commentStore.checkRateLimit(userId, isHost)) {
 			const rateLimit = isHost ? "10 seconds" : "1 minute";
-			commentStore.showToast(`Please wait before posting another comment (${rateLimit} rate limit)`);
+			commentStore.showToast(
+				`Please wait before posting another comment (${rateLimit} rate limit)`,
+			);
 			return;
 		}
 	} else {

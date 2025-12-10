@@ -34,7 +34,7 @@ const userId = $derived($collaborationStore.userId);
 
 // Sort comments chronologically (newest first)
 const sortedComments = $derived(
-	Array.from(comments.values()).sort((a, b) => b.createdAt - a.createdAt)
+	Array.from(comments.values()).sort((a, b) => b.createdAt - a.createdAt),
 );
 
 // Timestamp display mode
