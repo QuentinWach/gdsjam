@@ -33,9 +33,7 @@ const isHost = $derived($collaborationStore.isHost);
 
 // Get userId - in solo mode, use localStorage userId
 const userId = $derived(
-	isInSession
-		? $collaborationStore.userId
-		: localStorage.getItem("gdsjam_userId") || ""
+	isInSession ? $collaborationStore.userId : localStorage.getItem("gdsjam_userId") || "",
 );
 
 // Sort comments chronologically (newest first)
