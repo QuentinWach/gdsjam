@@ -282,7 +282,18 @@ onDestroy(() => {
 							onclick={handleToggleViewerComments}
 							title={permissions.viewersCanComment ? "Disable viewer comments" : "Enable viewer comments"}
 						>
-							{permissions.viewersCanComment ? "🔓 Viewers Can Comment" : "🔒 Viewers Cannot Comment"}
+							<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								{#if permissions.viewersCanComment}
+									<!-- Unlocked icon -->
+									<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+									<path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+								{:else}
+									<!-- Locked icon -->
+									<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+									<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+								{/if}
+							</svg>
+							{permissions.viewersCanComment ? "Viewers Can Comment" : "Viewers Cannot Comment"}
 						</button>
 						<button
 							class="control-btn danger"
@@ -290,7 +301,11 @@ onDestroy(() => {
 							disabled={sortedComments.length === 0}
 							title="Clear all comments"
 						>
-							🗑️ Clear All
+							<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<polyline points="3 6 5 6 21 6"></polyline>
+								<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+							</svg>
+							Clear All
 						</button>
 					</div>
 				{/if}
@@ -322,7 +337,11 @@ onDestroy(() => {
 										onclick={() => handleRecenterViewport(comment.worldX, comment.worldY)}
 										title="Recenter viewport to this comment"
 									>
-										📍 Go to
+										<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+											<circle cx="12" cy="10" r="3"></circle>
+										</svg>
+										Go to
 									</button>
 									{#if isHost || comment.authorId === userId}
 										<button
@@ -330,7 +349,11 @@ onDestroy(() => {
 											onclick={() => handleDeleteComment(comment.id)}
 											title="Delete comment"
 										>
-											🗑️ Delete
+											<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<polyline points="3 6 5 6 21 6"></polyline>
+												<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+											</svg>
+											Delete
 										</button>
 									{/if}
 								</div>
@@ -421,6 +444,9 @@ onDestroy(() => {
 	color: #ccc;
 	font-size: 11px;
 	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
 	/* NO ANIMATIONS */
 	transition: none;
 }
@@ -516,6 +542,9 @@ onDestroy(() => {
 	color: #aaa;
 	font-size: 10px;
 	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	/* NO ANIMATIONS */
 	transition: none;
 }
@@ -534,6 +563,12 @@ onDestroy(() => {
 .action-btn.delete:hover {
 	background: rgba(200, 60, 60, 0.4);
 	border-color: rgba(255, 100, 100, 0.4);
+}
+
+.btn-icon {
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
 }
 </style>
 

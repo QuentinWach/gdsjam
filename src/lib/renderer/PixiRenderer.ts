@@ -749,6 +749,7 @@ export class PixiRenderer {
 		this.updateViewport();
 		this.updateGrid();
 		this.updateScaleBar();
+		this.notifyViewportChanged();
 	}
 
 	/**
