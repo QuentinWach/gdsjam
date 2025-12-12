@@ -33,6 +33,12 @@ GDSJam is a GDSII and DXF file viewer available as both a web application and de
 </div>
 
 
+<div align="center">
+<img width="1200" alt="image" src="https://github.com/user-attachments/assets/972d2bff-0e26-4e63-a74a-0d8e0473cac8" />
+  <br>
+  <sub>A collaborative session with comments</sub>
+</div>
+
 ## Features
 
 - **GDSII/DXF viewing** with WebGL acceleration
