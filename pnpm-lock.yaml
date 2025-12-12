@@ -29,6 +29,9 @@ importers:
       pixi.js:
         specifier: ^8.14.1
         version: 8.14.1
+      pnpm:
+        specifier: ^10.25.0
+        version: 10.25.0
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -1479,6 +1482,11 @@ packages:
   pngjs@5.0.0:
     resolution: {integrity: sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==}
     engines: {node: '>=10.13.0'}
+
+  pnpm@10.25.0:
+    resolution: {integrity: sha512-XoJjkCevN8+DIGG8xtY5whljRIjg8rrr54UCink957Ul/80/f/V09emGBlTgmP6FK6isXdXO/hdn0joCCpL1AQ==}
+    engines: {node: '>=18.12'}
+    hasBin: true
 
   postcss@8.5.6:
     resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
@@ -3106,6 +3114,8 @@ snapshots:
       tiny-lru: 11.4.5
 
   pngjs@5.0.0: {}
+
+  pnpm@10.25.0: {}
 
   postcss@8.5.6:
     dependencies:
