@@ -80,6 +80,72 @@ pnpm lint
 pnpm test
 ```
 
+## Embedding (iframe)
+
+GDSJam can be embedded into any webpage as an interactive, zoomable “image-like” viewer.
+
+### Basic embed
+
+- Use `?embed=true` to enable embed mode (viewer-only UI)
+- Use `?url=<GDS_URL>` to load a remote GDS file
+
+Example:
+
+```html
+<iframe
+  src="https://gdsjam.com/?embed=true&url=https://example.com/chip.gds"
+  width="800"
+  height="600"
+  style="border: 1px solid #333; border-radius: 8px;"
+></iframe>
+```
+
+### CORS requirement for `url=`
+
+If you use `?url=...`, the remote server hosting the `.gds/.gdsii` must allow cross-origin fetches.
+If it doesn’t, the embed will fail with a CORS/network error.
+
+### Hosting headers (required for embedding)
+
+Embedding is controlled by **HTTP response headers** from your hosting/CDN:
+
+- Do not send `X-Frame-Options: DENY` or `X-Frame-Options: SAMEORIGIN`
+- If you use CSP, ensure `Content-Security-Policy` does not include a restrictive `frame-ancestors`
+  directive (or set it to allow your embedding sites)
+
+### Optional: postMessage API
+
+When embedded, the iframe listens for messages from the parent page:
+
+- Load file: `{ type: "gdsjam:loadFile", url: "https://example.com/chip.gds" }`
+- Get state: `{ type: "gdsjam:getState" }`
+
+The iframe sends messages to the parent:
+
+- `{ type: "gdsjam:ready" }`
+- `{ type: "gdsjam:fileLoaded", url, fileName? }`
+- `{ type: "gdsjam:error", message }`
+- `{ type: "gdsjam:state", state }`
+
+Example parent code:
+
+```html
+<iframe id="gds" src="https://gdsjam.com/?embed=true" width="800" height="600"></iframe>
+<script>
+  const iframe = document.getElementById("gds");
+  window.addEventListener("message", (ev) => {
+    if (!ev.data || !ev.data.type) return;
+    console.log("from iframe:", ev.data);
+  });
+  iframe.addEventListener("load", () => {
+    iframe.contentWindow.postMessage(
+      { type: "gdsjam:loadFile", url: "https://example.com/chip.gds" },
+      "*",
+    );
+  });
+</script>
+```
+
 ### Desktop App
 
 **Prerequisites:**

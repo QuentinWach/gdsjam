@@ -13,6 +13,7 @@ import { fetchGDSIIFromURL } from "./lib/utils/urlLoader";
 import { collaborationStore } from "./stores/collaborationStore";
 import { commentStore } from "./stores/commentStore";
 import { gdsStore } from "./stores/gdsStore";
+import { EmbedAPI } from "./lib/embed/EmbedAPI";
 
 const KEYBOARD_OWNER = "App";
 const HELP_MODAL_SEEN_KEY = "gdsjam_help_modal_seen";
@@ -26,11 +27,28 @@ let showHelpModal = $state(false);
 // Fullscreen mode state (hides header and footer)
 let fullscreenMode = $state(false);
 
+// Embed mode state (iframe-friendly, viewer-only)
+let embedMode = $state(false);
+let embedApi: EmbedAPI | null = null;
+
 /**
  * Toggle fullscreen mode (hide/show header and footer)
  */
 function handleToggleFullscreen(enabled: boolean): void {
 	fullscreenMode = enabled;
+}
+
+async function loadFileFromUrl(fileUrl: string): Promise<void> {
+	// Fetch the file from URL
+	const { arrayBuffer, fileName } = await fetchGDSIIFromURL(fileUrl, (progress, message) => {
+		gdsStore.setLoading(true, message, progress);
+	});
+
+	// Load the file
+	await loadGDSIIFromBuffer(arrayBuffer, fileName);
+
+	// Clear all comments when a new file is loaded
+	commentStore.reset();
 }
 
 /**
@@ -141,17 +159,55 @@ onMount(async () => {
 
 	// Check if this is the first time user visits (show help modal)
 	const hasSeenHelpModal = localStorage.getItem(HELP_MODAL_SEEN_KEY);
-	if (!hasSeenHelpModal) {
-		showHelpModal = true;
-	}
 
 	// Parse URL parameters
 	const urlParams = new URLSearchParams(window.location.search);
 	const fileUrl = urlParams.get("url");
 	const roomId = urlParams.get("room");
 
+	// Detect embed mode either explicitly or by iframe context
+	let isInIframe = false;
+	try {
+		isInIframe = window.self !== window.top;
+	} catch {
+		// Cross-origin access can throw; if it does, assume we're in an iframe.
+		isInIframe = true;
+	}
+	embedMode = urlParams.get("embed") === "true" || isInIframe;
+
+	if (!embedMode && !hasSeenHelpModal) {
+		showHelpModal = true;
+	}
+
+	// Initialize embed postMessage API (optional)
+	if (embedMode) {
+		embedApi = new EmbedAPI();
+		embedApi.init({
+			loadUrl: async (url) => {
+				try {
+					await loadFileFromUrl(url);
+					embedApi?.notifyFileLoaded({ url, fileName: $gdsStore.fileName ?? undefined });
+				} catch (error) {
+					embedApi?.notifyError(
+						error instanceof Error ? error.message : `Failed to load file: ${String(error)}`,
+					);
+					throw error;
+				}
+			},
+			getState: () => ({
+				fileName: $gdsStore.fileName ?? null,
+				isLoading: $gdsStore.isLoading,
+				progress: $gdsStore.loadingProgress,
+				message: $gdsStore.loadingMessage,
+				error: $gdsStore.error,
+			}),
+		});
+		embedApi.notifyReady();
+	}
+
 	// Handle room parameter (join collaboration session)
-	if (roomId) {
+	// Embed mode is viewer-only: ignore collaboration sessions.
+	if (roomId && !embedMode) {
 		// Wait for Y.js sync before checking for file metadata
 		await collaborationStore.joinSession(roomId);
 
@@ -269,20 +325,15 @@ onMount(async () => {
 	// Handle URL parameter (load file from URL)
 	if (fileUrl) {
 		try {
-			// Fetch the file from URL
-			const { arrayBuffer, fileName } = await fetchGDSIIFromURL(fileUrl, (progress, message) => {
-				gdsStore.setLoading(true, message, progress);
-			});
-
-			// Load the file
-			await loadGDSIIFromBuffer(arrayBuffer, fileName);
-
-			// Clear all comments when a new file is loaded
-			commentStore.reset();
+			await loadFileFromUrl(fileUrl);
+			embedApi?.notifyFileLoaded({ url: fileUrl, fileName: $gdsStore.fileName ?? undefined });
 		} catch (error) {
 			console.error("[App] Failed to load file from URL:", error);
 			gdsStore.setError(
 				`Failed to load file from URL: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			embedApi?.notifyError(
+				error instanceof Error ? error.message : `Failed to load file: ${String(error)}`,
 			);
 		}
 	}
@@ -291,6 +342,8 @@ onMount(async () => {
 onDestroy(() => {
 	// Unregister keyboard shortcuts on app unmount
 	KeyboardShortcutManager.unregisterByOwner(KEYBOARD_OWNER);
+	embedApi?.destroy();
+	embedApi = null;
 });
 </script>
 
@@ -304,15 +357,27 @@ onDestroy(() => {
 />
 
 <main class="app-main">
-	{#if !fullscreenMode}
+	{#if !fullscreenMode && !embedMode}
 		<HeaderBar />
 	{/if}
 
 	<div class="viewer-wrapper">
 		{#if !$gdsStore.document && !$gdsStore.isLoading}
-			<div class="upload-overlay">
-				<FileUpload />
-			</div>
+			{#if embedMode}
+				<div class="upload-overlay">
+					<div class="text-gray-200 max-w-2xl">
+						<h2 class="text-xl font-semibold mb-2">GDSJam Embed</h2>
+						<p class="text-sm text-gray-400">
+							No file loaded. Provide a URL with <code>?embed=true&amp;url=...</code> or send a
+							postMessage <code>loadFile</code> command from the parent page.
+						</p>
+					</div>
+				</div>
+			{:else}
+				<div class="upload-overlay">
+					<FileUpload />
+				</div>
+			{/if}
 		{:else if $gdsStore.isLoading || $gdsStore.isRendering || $collaborationStore.isTransferring}
 			<LoadingOverlay
 				message={$collaborationStore.isTransferring ? $collaborationStore.fileTransferMessage : $gdsStore.loadingMessage}
@@ -338,14 +403,16 @@ onDestroy(() => {
 	</div>
 
 	{#if !fullscreenMode}
-		<div class="controls-info">
-			<p class="text-sm text-gray-400 keyboard-shortcuts">
-				Controls: Ctrl/Cmd+O to open file | Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view (hold for fullscreen) | Esc to exit fullscreen | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | M to toggle minimap | C to add comment (double-tap for comment panel, hold to toggle visibility) | H for help | Touch: One finger to pan, two fingers to zoom
-			</p>
-			<p class="text-sm text-gray-400 footer-note">
-				When not using sessions, this webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>. Read or Contribute to source code on <a href="https://github.com/jwt625/gdsjam" target="_blank" rel="noopener noreferrer" class="creator-link">GitHub</a>.
-			</p>
-		</div>
+		{#if !embedMode}
+			<div class="controls-info">
+				<p class="text-sm text-gray-400 keyboard-shortcuts">
+					Controls: Ctrl/Cmd+O to open file | Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view (hold for fullscreen) | Esc to exit fullscreen | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | M to toggle minimap | C to add comment (double-tap for comment panel, hold to toggle visibility) | H for help | Touch: One finger to pan, two fingers to zoom
+				</p>
+				<p class="text-sm text-gray-400 footer-note">
+					When not using sessions, this webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>. Read or Contribute to source code on <a href="https://github.com/jwt625/gdsjam" target="_blank" rel="noopener noreferrer" class="creator-link">GitHub</a>.
+				</p>
+			</div>
+		{/if}
 	{/if}
 </main>
 
