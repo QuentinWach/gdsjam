@@ -3,6 +3,7 @@ import { onDestroy, onMount } from "svelte";
 import ErrorToast from "./components/ui/ErrorToast.svelte";
 import FileUpload from "./components/ui/FileUpload.svelte";
 import HeaderBar from "./components/ui/HeaderBar.svelte";
+import HelpModal from "./components/ui/HelpModal.svelte";
 import LoadingOverlay from "./components/ui/LoadingOverlay.svelte";
 import ParticipantList from "./components/ui/ParticipantList.svelte";
 import ViewerCanvas from "./components/viewer/ViewerCanvas.svelte";
@@ -14,9 +15,13 @@ import { commentStore } from "./stores/commentStore";
 import { gdsStore } from "./stores/gdsStore";
 
 const KEYBOARD_OWNER = "App";
+const HELP_MODAL_SEEN_KEY = "gdsjam_help_modal_seen";
 
 // Hidden file input for keyboard shortcut
 let globalFileInput: HTMLInputElement;
+
+// Help modal state
+let showHelpModal = $state(false);
 
 // Fullscreen mode state (hides header and footer)
 let fullscreenMode = $state(false);
@@ -79,6 +84,14 @@ async function handleGlobalFileInput(event: Event) {
 }
 
 /**
+ * Close help modal and mark as seen
+ */
+function handleCloseHelpModal(): void {
+	showHelpModal = false;
+	localStorage.setItem(HELP_MODAL_SEEN_KEY, "true");
+}
+
+/**
  * Register keyboard shortcuts for app-level controls
  */
 function registerKeyboardShortcuts(): void {
@@ -108,6 +121,14 @@ function registerKeyboardShortcuts(): void {
 			},
 			description: "Exit fullscreen mode",
 		},
+		{
+			id: "toggle-help",
+			key: "KeyH",
+			callback: () => {
+				showHelpModal = !showHelpModal;
+			},
+			description: "Toggle help modal (H)",
+		},
 	]);
 }
 
@@ -117,6 +138,13 @@ function registerKeyboardShortcuts(): void {
 onMount(async () => {
 	// Register keyboard shortcuts
 	registerKeyboardShortcuts();
+
+	// Check if this is the first time user visits (show help modal)
+	const hasSeenHelpModal = localStorage.getItem(HELP_MODAL_SEEN_KEY);
+	if (!hasSeenHelpModal) {
+		showHelpModal = true;
+	}
+
 	// Parse URL parameters
 	const urlParams = new URLSearchParams(window.location.search);
 	const fileUrl = urlParams.get("url");
@@ -304,12 +332,15 @@ onDestroy(() => {
 		{#if $gdsStore.error}
 			<ErrorToast message={$gdsStore.error} onDismiss={() => gdsStore.clearError()} />
 		{/if}
+
+		<!-- Help Modal (shown on first page load) -->
+		<HelpModal visible={showHelpModal} onClose={handleCloseHelpModal} />
 	</div>
 
 	{#if !fullscreenMode}
 		<div class="controls-info">
 			<p class="text-sm text-gray-400 keyboard-shortcuts">
-				Controls: Ctrl/Cmd+O to open file | Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view (hold for fullscreen) | Esc to exit fullscreen | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | M to toggle minimap | Touch: One finger to pan, two fingers to zoom
+				Controls: Ctrl/Cmd+O to open file | Mouse wheel to zoom | Middle mouse or Space+Drag to pan | Arrow keys to move | Enter to zoom in | Shift+Enter to zoom out | F to fit view (hold for fullscreen) | Esc to exit fullscreen | G to toggle grid | O to toggle fill/outline | P to toggle info panel | L to toggle layer panel | M to toggle minimap | C to add comment (double-tap for comment panel, hold to toggle visibility) | H for help | Touch: One finger to pan, two fingers to zoom
 			</p>
 			<p class="text-sm text-gray-400 footer-note">
 				When not using sessions, this webapp is client-side only - your GDS file is not uploaded anywhere. Created by <a href="https://outside5sigma.com/" target="_blank" rel="noopener noreferrer" class="creator-link">Wentao</a>. Read or Contribute to source code on <a href="https://github.com/jwt625/gdsjam" target="_blank" rel="noopener noreferrer" class="creator-link">GitHub</a>.
