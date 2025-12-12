@@ -26,11 +26,13 @@ GDSJam is a GDSII and DXF file viewer available as both a web application and de
 ## Screenshots
 
 <div align="center">
-  <img src="public/example.png" alt="GDSJam Desktop View" height="400">
+  <img src="https://github.com/user-attachments/assets/c0d59be0-041d-4304-bdfd-73290eb19fbb" alt="GDSJam Desktop View" height="400">
   <img src="public/example_mobile.png" alt="GDSJam Mobile View" height="400">
   <br>
   <sub>Desktop view (left) and mobile view (right)</sub>
 </div>
+
+
 
 ## Features
 
