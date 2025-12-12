@@ -50,6 +50,7 @@ export class PixiRenderer {
 	private gridContainer: Container;
 	private spatialIndex: SpatialIndex;
 	private fpsText: Text;
+	private memoryText: Text;
 	private scaleBarContainer: Container;
 	private coordsText: Text;
 	private allGraphicsItems: RTreeItem[] = [];
@@ -112,6 +113,19 @@ export class PixiRenderer {
 				fill: 0x00ff00,
 			},
 		});
+		// Right-align the text so it doesn't overflow on the right
+		this.fpsText.anchor.set(1, 0);
+
+		this.memoryText = new Text({
+			text: "Mem: 0 MB",
+			style: {
+				fontFamily: "monospace",
+				fontSize: 14,
+				fill: 0x00ff00,
+			},
+		});
+		// Right-align the text so it doesn't overflow on the right
+		this.memoryText.anchor.set(1, 0);
 
 		this.coordsText = new Text({
 			text: "X: 0.00 µm, Y: 0.00 µm",
@@ -152,9 +166,15 @@ export class PixiRenderer {
 		this.gridContainer.scale.y = -1;
 
 		// Add UI overlays
-		this.fpsText.x = this.app.screen.width - 80;
+		// Both texts are right-aligned (anchor at 1, 0), so x position is the right edge
+		this.fpsText.x = this.app.screen.width - 10;
 		this.fpsText.y = 10;
 		this.app.stage.addChild(this.fpsText);
+
+		this.memoryText.x = this.app.screen.width - 10;
+		this.memoryText.y = 28; // Position below FPS text
+		this.app.stage.addChild(this.memoryText);
+
 		this.app.stage.addChild(this.scaleBarContainer);
 
 		this.coordsText.x = this.app.screen.width - 200;
@@ -162,7 +182,7 @@ export class PixiRenderer {
 		this.app.stage.addChild(this.coordsText);
 
 		// Initialize overlay modules
-		this.fpsCounter = new FPSCounter(this.fpsText, FPS_UPDATE_INTERVAL);
+		this.fpsCounter = new FPSCounter(this.fpsText, this.memoryText, FPS_UPDATE_INTERVAL);
 		this.coordinatesDisplay = new CoordinatesDisplay(this.coordsText);
 		this.gridOverlay = new GridOverlay(this.gridContainer, this.app);
 		this.scaleBarOverlay = new ScaleBarOverlay(this.scaleBarContainer, this.app);
