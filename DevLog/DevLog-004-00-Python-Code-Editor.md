@@ -1,13 +1,19 @@
-# DevLog-004-00: Python Code Editor with Pyodide
+# DevLog-004-00: Python Code Editor
 
 ## Metadata
-- **Document Version:** 1.0
+- **Document Version:** 2.0
 - **Created:** 2025-12-13
 - **Author:** Wentao Jiang
-- **Status:** Planning
+- **Status:** Planning - Architecture Revised
 - **Related Documents:** DevLog-001-mvp-implementation-plan.md
 
 ## Changelog
+- **v2.0 (2025-12-13):** Architecture change from client-side to server-side execution
+  - Documented failed Pyodide POC due to native dependencies (gdstk, watchdog)
+  - Evaluated WASM compilation effort (1-2 weeks, not viable for MVP)
+  - Selected server-side execution approach
+  - Designed REST API endpoint for Python code execution
+  - Estimated implementation: 4-6 hours
 - **v1.1 (2025-12-13):** Refined MVP scope based on stakeholder feedback
   - Removed directory/file management (single file editor only)
   - Added Ctrl/Cmd+Enter keyboard shortcut for code execution
@@ -20,7 +26,7 @@
 
 ## Executive Summary
 
-This document outlines the implementation plan for adding a Python code editor to gdsjam, enabling users to write gdsfactory code in the browser and view the generated GDS layouts in real-time. The feature uses Pyodide (CPython compiled to WebAssembly) to execute Python code client-side, maintaining gdsjam's privacy-first architecture.
+This document outlines the implementation plan for adding a Python code editor to gdsjam, enabling users to write gdsfactory code and view the generated GDS layouts in real-time. After investigating client-side execution via Pyodide (WebAssembly), we have determined that server-side execution is the most viable approach for MVP due to native dependency constraints in gdsfactory's dependency tree.
 
 ## Problem Statement
 
@@ -31,9 +37,9 @@ Current gdsjam is a viewer-only application. Users must:
 
 This creates friction for learning and rapid prototyping workflows, particularly for students and researchers exploring photonics design.
 
-## Solution: In-Browser Python Code Editor
+## Solution: Python Code Editor with Server-Side Execution
 
-Enable users to write and execute gdsfactory code directly in the browser, with instant visualization of generated layouts.
+Enable users to write and execute gdsfactory code with instant visualization of generated layouts.
 
 **Target Users:**
 - Students learning photonics/chip design
@@ -46,43 +52,152 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 - Sharing code snippets with colleagues
 - Educational demonstrations
 
-## Technical Feasibility
+---
 
-### Pyodide: Python in WebAssembly
+## Architecture Decision: Client-Side vs Server-Side Execution
 
-**Pyodide** is a production-ready port of CPython 3.12+ to WebAssembly/Emscripten.
+### Investigation: Pyodide (Client-Side Execution)
 
-**Key Capabilities:**
-- Full CPython interpreter in browser
-- 200+ pre-built packages including NumPy, SciPy, pandas
-- micropip for installing pure Python packages from PyPI
-- Virtual filesystem for file I/O operations
-- Mature and actively maintained (v0.29.0 as of Dec 2024)
+**Approach:** Use Pyodide (CPython compiled to WebAssembly) to run Python in the browser.
 
-**gdsfactory Compatibility:**
-- Pure Python package (no native extensions)
-- Dependencies: NumPy, SciPy (both available in Pyodide)
-- Generates GDS files as binary output (capturable via virtual filesystem)
-- Expected to work with minimal modifications
+**POC Implementation:** Created `tests/pyodide-poc.html` to validate gdsfactory compatibility.
 
-**Bundle Size Considerations:**
-- Pyodide core: ~6MB (gzipped)
-- NumPy: ~10MB
-- SciPy: ~20MB
-- gdsfactory + dependencies: ~10-20MB (estimated)
-- Total: ~50MB initial download
+**POC Results:** Failed due to native dependency constraints.
 
-**Mitigation Strategy:**
-- Lazy load (only when code editor is opened)
-- Cache in IndexedDB (one-time download)
-- Show progress indicators during first load
-- Use CDN for fast global delivery
+**Technical Findings:**
 
-## Architecture Overview
+1. **gdstk Dependency (Critical Blocker)**
+   - gdsfactory requires kfactory >= 2.2
+   - kfactory depends on gdstk (C++ library for GDS manipulation)
+   - gdstk is distributed as platform-specific binary wheels (not pure Python)
+   - gdstk is not available in Pyodide's package repository
+   - Error: `ValueError: Can't find a pure Python 3 wheel for 'gdstk'`
+
+2. **Additional Blockers**
+   - watchdog: File system monitoring library with native C extensions
+   - shapely: Geometry library with C extensions (may be needed)
+
+3. **WASM Compilation Assessment**
+   - Compiling gdstk to WebAssembly would require:
+     - Setting up Emscripten build environment
+     - Creating Pyodide build recipes (`meta.yaml`)
+     - Compiling C++ dependencies (qhull, zlib)
+     - Testing and debugging WASM-specific issues
+   - Estimated effort: 1-2 weeks for experienced developer
+   - Risk: Medium-high (WASM debugging, memory management, file I/O)
+
+**Conclusion:** Client-side execution is not viable for MVP timeline.
+
+### Selected Approach: Server-Side Execution
+
+**Architecture:** REST API endpoint that executes Python code on the server and returns generated GDS files.
+
+**Advantages:**
+- Full gdsfactory support (no dependency constraints)
+- Faster implementation (4-6 hours vs 1-2 weeks)
+- No client bundle size impact
+- Easier to maintain and update Python environment
+- Leverages existing file storage infrastructure
+- Can support future features (custom dependencies, longer execution times)
+
+**Trade-offs:**
+- Requires server infrastructure (already exists for collaboration features)
+- Code is sent to server (acceptable for educational/prototyping use cases)
+- Network latency (round-trip + execution time)
+- Server resource usage (mitigated by rate limiting and timeouts)
+
+**Security Considerations:**
+- Sandboxed execution in isolated temporary directories
+- 30-second timeout enforcement
+- Rate limiting: 10 executions per IP per hour
+- File size limits: 100MB maximum
+- Output size limits: 10MB maximum
+- Future enhancements: Docker containerization, network isolation
+
+---
+
+## Server-Side API Design
+
+### Endpoint: `POST /api/execute`
+
+**Purpose:** Execute Python/gdsfactory code and return generated GDS file.
+
+**Request:**
+```json
+{
+  "code": "import gdsfactory as gf\nc = gf.components.ring_single()\nc.write_gds('output.gds')"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "fileId": "abc123...",
+  "size": 12345,
+  "executionTime": 1.23,
+  "stdout": "Component created successfully\n",
+  "stderr": ""
+}
+```
+
+**Response (Error):**
+```json
+{
+  "success": false,
+  "error": "SyntaxError: invalid syntax",
+  "stdout": "",
+  "stderr": "Traceback (most recent call last)...",
+  "executionTime": 0.05
+}
+```
+
+### Execution Workflow
+
+1. Client sends Python code to `POST /api/execute`
+2. Server creates isolated temporary directory
+3. Server writes code to `temp/script.py`
+4. Server executes: `python3 temp/script.py` (with 30s timeout)
+5. Server captures stdout/stderr
+6. Server searches for `*.gds` files in temp directory
+7. If GDS file found:
+   - Compute SHA-256 hash
+   - Save to file storage (`/var/gdsjam/files/<hash>.bin`)
+   - Return fileId (hash)
+8. If no GDS file found:
+   - Return error with stdout/stderr
+9. Server cleans up temporary directory
+
+### Client Integration
+
+```typescript
+// Execute Python code
+const response = await fetch('https://signaling.gdsjam.com/api/execute', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${AUTH_TOKEN}`
+  },
+  body: JSON.stringify({ code: pythonCode })
+});
+
+const result = await response.json();
+
+if (result.success) {
+  // Load GDS using existing file loading routine
+  const gdsUrl = `https://signaling.gdsjam.com/api/files/${result.fileId}`;
+  await loadGdsFromUrl(gdsUrl);
+} else {
+  console.error('Execution failed:', result.error);
+  console.log('stderr:', result.stderr);
+}
+```
+
+### Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     GDSJam Enhanced                          │
+│                     GDSJam Client                            │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────┐         ┌──────────────┐                 │
@@ -93,27 +208,56 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 │         │ Python code            │ Binary GDS               │
 │         ▼                        ▼                          │
 │  ┌──────────────┐         ┌──────────────┐                 │
-│  │   Pyodide    │         │ gdsii parser │                 │
-│  │  (Python)    │         │ (JavaScript) │                 │
+│  │ POST /api/   │         │ gdsii parser │                 │
+│  │   execute    │         │ (JavaScript) │                 │
 │  └──────┬───────┘         └──────┬───────┘                 │
 │         │                        │                          │
-│         │ GDS binary             │ GDSDocument              │
+│         │ fileId                 │ GDSDocument              │
 │         ▼                        ▼                          │
-│  ┌─────────────────────────────────────┐                   │
-│  │     Unified GDS Parser/Converter    │                   │
-│  └─────────────┬───────────────────────┘                   │
-│                │                                            │
-│                │ GDSDocument (internal format)              │
-│                ▼                                            │
-│  ┌─────────────────────────────────────┐                   │
-│  │   Existing Pixi.js Renderer         │                   │
-│  │   (LOD, WebGL, Spatial Index)       │                   │
-│  └─────────────────────────────────────┘                   │
+│  ┌──────────────────────────────────────┐                  │
+│  │         GDS Renderer (Pixi.js)       │                  │
+│  └──────────────────────────────────────┘                  │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+                         │
+                         │ HTTPS
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  GDSJam Server (Node.js)                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  POST /api/execute                                           │
+│         │                                                    │
+│         ▼                                                    │
+│  ┌──────────────────┐                                       │
+│  │ Python Executor  │                                       │
+│  │ - Create temp dir│                                       │
+│  │ - Write script   │                                       │
+│  │ - Execute Python │                                       │
+│  │ - Capture output │                                       │
+│  │ - Find GDS files │                                       │
+│  │ - Cleanup        │                                       │
+│  └──────┬───────────┘                                       │
+│         │                                                    │
+│         ▼                                                    │
+│  ┌──────────────────┐                                       │
+│  │  File Storage    │                                       │
+│  │  (SHA-256 hash)  │                                       │
+│  └──────────────────┘                                       │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## MVP Feature Set (Revised)
+**Key Components:**
+1. **Monaco Editor**: VS Code's editor component for code editing
+2. **Python Executor**: Server-side Python code execution with sandboxing
+3. **File Storage**: Existing infrastructure for GDS file storage
+4. **Existing GDS Parser**: JavaScript parser for GDSII files
+5. **Existing Renderer**: Pixi.js-based WebGL2 renderer
+
+---
+
+## MVP Feature Set (Revised for Server-Side Execution)
 
 ### Core Features
 
@@ -127,9 +271,10 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 2. **Code Execution**
    - "Run" button to execute Python code
    - Keyboard shortcut: Ctrl/Cmd+Enter to run
-   - Capture GDS output from Pyodide virtual filesystem
-   - Parse GDS binary and render in existing viewer
-   - Error display in console panel
+   - Send code to server via `POST /api/execute`
+   - Display execution progress indicator
+   - Load generated GDS file via existing file loading routine
+   - Error display in console panel (stdout/stderr from server)
 
 3. **Default Example**
    - Single default example loaded on first open
@@ -148,80 +293,140 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 
 ### Performance Features
 
-6. **Lazy Loading**
-   - Pyodide loads only when "Code" tab is opened
-   - Progress indicator during initial load
-   - Cache in IndexedDB for subsequent visits
-
-7. **Execution Safety**
-   - Timeout for long-running code (30 seconds)
-   - Memory limit warnings
+6. **Execution Safety**
+   - Server-side timeout: 30 seconds
+   - Rate limiting: 10 executions per IP per hour
+   - File size limits: 100MB maximum
+   - Output size limits: 10MB maximum
 
 ### Deferred to Post-MVP
 
 - Directory and file management (multi-file projects)
 - Template selector with multiple examples
 - Code collaboration/sync in sessions
+- Docker containerization for stronger isolation
+- Custom Python package installation
 - Advanced autocomplete for gdsfactory API
 - Syntax validation before execution
 - Code sharing via URL parameters
 
+---
+
 ## Implementation Plan
 
-### Phase 1: Proof of Concept (2-3 days)
+### Phase 1: Server-Side Python Executor (4-6 hours)
 
-**Goal:** Validate gdsfactory works in Pyodide
+**Goal:** Implement REST API endpoint for Python code execution
 
 **Tasks:**
-1. Create standalone HTML test page
-2. Load Pyodide from CDN
-3. Install gdsfactory via micropip
-4. Run simple gdsfactory example
-5. Capture GDS binary from virtual filesystem
-6. Verify output can be parsed by existing gdsii parser
+1. Create `server/pythonExecutor.js`
+   - `executePythonCode(code)` function using `child_process.spawn`
+   - Temporary directory management using `tmp` package
+   - Timeout enforcement (30 seconds)
+   - GDS file detection and storage
+   - Rate limiting middleware
+   - `setupPythonRoutes(app)` to configure Express routes
+
+2. Update `server/server.js`
+   - Import and setup Python routes
+
+3. Update `server/package.json`
+   - Add `tmp` dependency
+
+4. Update `server/.env.example`
+   - Add Python execution configuration
+
+5. Test endpoint with curl/Postman
+   - Verify successful execution
+   - Verify error handling
+   - Verify rate limiting
+   - Verify timeout enforcement
+
+**Files to Create:**
+- `server/pythonExecutor.js` (~200 lines)
+
+**Files to Modify:**
+- `server/server.js` (~5 lines)
+- `server/package.json` (~2 lines)
+- `server/.env.example` (~5 lines)
 
 **Success Criteria:**
-- gdsfactory installs without errors
-- Simple component (e.g., ring resonator) generates valid GDS
-- Existing parser can read Pyodide-generated GDS
+- `POST /api/execute` endpoint accepts Python code
+- Server executes code in isolated temp directory
+- Generated GDS files are saved to file storage
+- Returns fileId for client to download
+- Proper error handling and timeout enforcement
+- Rate limiting prevents abuse
 
-**Deliverable:** `tests/pyodide-poc.html` with working example
+**Deliverable:** Working API endpoint with tests
 
-### Phase 2: Core Integration (1 week)
+### Phase 2: Client-Side Integration (1 week)
 
 **Tasks:**
 1. Add Monaco Editor dependency
 2. Create CodeEditor component (Svelte)
-3. Create PyodideManager utility class
-4. Implement lazy loading with progress indicators
+3. Create CodeConsole component for output display
+4. Create API client for `/api/execute` endpoint
 5. Add "Code" tab to main UI
 6. Wire up code execution pipeline
-7. Add error handling and console output
+7. Integrate with existing GDS file loading routine
+8. Add error handling and console output
 
 **Files to Create:**
 - `src/components/code/CodeEditor.svelte`
 - `src/components/code/CodeConsole.svelte`
-- `src/lib/pyodide/PyodideManager.ts`
+- `src/lib/api/pythonExecutor.ts`
 - `src/components/code/examples/default.py` (already created)
 
 **Files to Modify:**
 - `src/App.svelte` (add tab switching)
 - `package.json` (add monaco-editor)
 
+**Success Criteria:**
+- Code editor displays with syntax highlighting
+- Run button executes code on server
+- Generated GDS file loads in viewer
+- Errors display in console panel
+- Code persists in localStorage
+
 ### Phase 3: Polish & Optimization (2-3 days)
 
 **Tasks:**
-1. Implement IndexedDB caching for Pyodide
-2. Add execution timeout (30 seconds)
+1. Implement Ctrl/Cmd+Enter keyboard shortcut
+2. Add execution progress indicator
 3. Improve error messages and stack traces
-4. Implement Ctrl/Cmd+Enter keyboard shortcut
-5. Mobile UI (read-only view with desktop prompt)
-6. Add code reset functionality (restore default example)
-7. Update documentation
+4. Mobile UI (read-only view with desktop prompt)
+5. Add code reset functionality (restore default example)
+6. Update documentation
+7. Add server deployment instructions
+
+---
 
 ## Technical Decisions
 
-### Decision 1: Monaco Editor vs CodeMirror
+### Decision 1: Client-Side (Pyodide) vs Server-Side Execution
+
+**Choice:** Server-side execution
+
+**Rationale:**
+- gdsfactory requires gdstk (C++ library) which is not available in Pyodide
+- Compiling gdstk to WebAssembly would require 1-2 weeks of effort
+- Server-side execution provides full gdsfactory support
+- Faster implementation timeline (4-6 hours vs 1-2 weeks)
+- Can leverage existing file storage infrastructure
+- Server already exists for collaboration features
+
+**Trade-offs:**
+- Code is sent to server (acceptable for educational use cases)
+- Network latency (mitigated by fast execution times)
+- Requires server infrastructure (already exists)
+
+**POC Results:**
+- Created `tests/pyodide-poc.html` to validate Pyodide approach
+- Failed due to gdstk native dependency
+- Documented findings in this DevLog
+
+### Decision 2: Monaco Editor vs CodeMirror
 
 **Choice:** Monaco Editor
 
@@ -233,18 +438,6 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 - Larger community and ecosystem
 
 **Trade-off:** Larger bundle size (~2MB) vs CodeMirror (~500KB)
-
-### Decision 2: Code Execution Model
-
-**Choice:** Client-side only (no server-side fallback for MVP)
-
-**Rationale:**
-- Maintains privacy-first architecture
-- Simpler implementation
-- Sufficient for educational use cases
-- Can add server-side option in v2 if needed
-
-**Limitation:** Large/complex designs may be slow
 
 ### Decision 3: Code Sync Strategy
 
@@ -265,7 +458,6 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 **Rationale:**
 - Code editing on mobile is poor UX
 - Virtual keyboard obscures editor
-- Pyodide bundle size is large for mobile networks
 - Focus on desktop experience for MVP
 
 **Implementation:** Detect mobile, show code with "Edit on Desktop" message
@@ -284,19 +476,28 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 
 **Future:** Could add template gallery in v2
 
+---
+
 ## Success Criteria
 
-1. Pyodide loads successfully in <10 seconds on first visit
-2. gdsfactory installs and executes without errors
-3. Default example runs successfully and renders correctly
-4. Generated GDS renders correctly in existing viewer
-5. Code persists across page refreshes (localStorage)
-6. Ctrl/Cmd+Enter keyboard shortcut executes code
-7. Error messages are clear and actionable
-8. Execution timeout works (30 seconds)
-9. Bundle size increase <5MB (Monaco + Pyodide loader)
+1. Server endpoint `POST /api/execute` accepts Python code
+2. Server executes code in isolated environment with 30s timeout
+3. Generated GDS files are saved to file storage
+4. Client receives fileId and loads GDS via existing routine
+5. Default example runs successfully and renders correctly
+6. Code persists across page refreshes (localStorage)
+7. Ctrl/Cmd+Enter keyboard shortcut executes code
+8. Error messages are clear and actionable (stdout/stderr displayed)
+9. Rate limiting prevents abuse (10 executions per IP per hour)
 10. No regressions in existing upload/render functionality
 11. Mobile shows read-only view with desktop prompt
+
+## Estimated Timeline
+
+- **Phase 1 (Server):** 4-6 hours
+- **Phase 2 (Client):** 1 week
+- **Phase 3 (Polish):** 2-3 days
+- **Total:** 1.5-2 weeks
 
 ## Future Enhancements (Post-MVP)
 
@@ -309,7 +510,8 @@ Enable users to write and execute gdsfactory code directly in the browser, with 
 - Export code as .py file
 - Import .py files
 - Package version selector
-- Server-side execution option for large designs
+- Docker containerization for stronger isolation
+- Custom Python package installation
 - User-submitted template gallery
 - Code diff view for session participants
 - Integrated Python debugger

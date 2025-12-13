@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pyodide + gdsfactory POC</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        h1 {
+            color: #00ff00;
+            border-bottom: 2px solid #00ff00;
+            padding-bottom: 10px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #333;
+            background: #0a0a0a;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #00ff00;
+            background: #1a1a1a;
+        }
+        .error {
+            border-left-color: #ff0000;
+            color: #ff0000;
+        }
+        .success {
+            border-left-color: #00ff00;
+            color: #00ff00;
+        }
+        .info {
+            border-left-color: #ffaa00;
+            color: #ffaa00;
+        }
+        button {
+            background: #00ff00;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin: 5px;
+        }
+        button:hover {
+            background: #00cc00;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        pre {
+            background: #000;
+            padding: 10px;
+            overflow-x: auto;
+            border: 1px solid #333;
+        }
+        .progress {
+            width: 100%;
+            height: 30px;
+            background: #333;
+            border: 1px solid #00ff00;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #00ff00;
+            width: 0%;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Pyodide + gdsfactory POC Test</h1>
+
+    <div class="section">
+        <p><strong>Note:</strong> gdsfactory has a dependency on <code>watchdog</code> (file system monitoring) which has native code.
+        This test attempts to install gdsfactory without dependencies and manually install only pure Python dependencies.
+        If gdsfactory fails, it will fallback to <code>gdstk</code> (the underlying GDS library).</p>
+    </div>
+
+    <div class="section">
+        <h2>Test Objectives</h2>
+        <ul>
+            <li>Load Pyodide in browser</li>
+            <li>Install gdsfactory via micropip (or fallback to gdstk)</li>
+            <li>Run simple GDS generation code</li>
+            <li>Capture GDS binary output</li>
+            <li>Verify output can be read</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Progress</h2>
+        <div class="progress">
+            <div class="progress-bar" id="progressBar">0%</div>
+        </div>
+        <div id="statusLog"></div>
+    </div>
+
+    <div class="section">
+        <h2>Controls</h2>
+        <button id="startBtn" onclick="runPOC()">Start POC Test</button>
+        <button id="testSimpleBtn" onclick="testSimpleComponent()" disabled>Test Simple Component</button>
+        <button id="testComplexBtn" onclick="testComplexComponent()" disabled>Test Complex Component</button>
+    </div>
+
+    <div class="section">
+        <h2>Results</h2>
+        <div id="results"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+    <script>
+        let pyodide = null;
+        let testResults = [];
+
+        function updateProgress(percent, message) {
+            const bar = document.getElementById('progressBar');
+            bar.style.width = percent + '%';
+            bar.textContent = percent + '%';
+            addStatus(message, 'info');
+        }
+
+        function addStatus(message, type = 'info') {
+            const log = document.getElementById('statusLog');
+            const status = document.createElement('div');
+            status.className = `status ${type}`;
+            status.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(status);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function addResult(title, content, isError = false) {
+            const results = document.getElementById('results');
+            const result = document.createElement('div');
+            result.innerHTML = `
+                <h3 style="color: ${isError ? '#ff0000' : '#00ff00'}">${title}</h3>
+                <pre>${content}</pre>
+            `;
+            results.appendChild(result);
+        }
+
+        async function runPOC() {
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = true;
+            
+            try {
+                // Step 1: Load Pyodide
+                updateProgress(10, 'Loading Pyodide...');
+                const startTime = performance.now();
+                pyodide = await loadPyodide({
+                    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/"
+                });
+                const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
+                addStatus(`Pyodide loaded in ${loadTime}s`, 'success');
+                updateProgress(30, 'Pyodide loaded successfully');
+
+                // Step 2: Load micropip
+                updateProgress(40, 'Loading micropip...');
+                await pyodide.loadPackage("micropip");
+                const micropip = pyodide.pyimport("micropip");
+                addStatus('micropip loaded', 'success');
+
+                // Step 3: Install gdsfactory without dependencies first
+                updateProgress(50, 'Installing gdsfactory (no-deps)...');
+                const installStart = performance.now();
+
+                // Install gdsfactory without dependencies to avoid watchdog
+                await pyodide.runPythonAsync(`
+                    import micropip
+                    await micropip.install("gdsfactory", deps=False)
+                `);
+
+                addStatus('gdsfactory (no-deps) installed', 'success');
+                updateProgress(60, 'Installing core dependencies...');
+
+                // Install only the pure Python dependencies we need
+                // Skip watchdog (has native code), install others manually
+                const coreDeps = [
+                    'numpy',
+                    'aenum',  // Required by gdsfactory
+                    'pydantic',
+                    'pyyaml',
+                    'toolz',
+                    'shapely',  // May fail if has native code
+                    'click',
+                    'rich',
+                    'loguru',
+                    'omegaconf',
+                    'orjson',  // May fail if has native code
+                    'pydantic-settings',
+                    'kfactory'  // May fail if has dependencies with native code
+                ];
+
+                for (const dep of coreDeps) {
+                    try {
+                        addStatus(`Installing ${dep}...`, 'info');
+                        await micropip.install(dep);
+                        addStatus(`${dep} installed`, 'success');
+                    } catch (e) {
+                        addStatus(`${dep} failed (skipping): ${e.message}`, 'error');
+                    }
+                }
+
+                const installTime = ((performance.now() - installStart) / 1000).toFixed(2);
+                addStatus(`gdsfactory setup completed in ${installTime}s`, 'success');
+                updateProgress(80, 'gdsfactory setup completed');
+
+                // Step 4: Test import
+                updateProgress(90, 'Testing gdsfactory import...');
+                try {
+                    const version = await pyodide.runPythonAsync(`
+                        import gdsfactory as gf
+                        gf.__version__
+                    `);
+                    addStatus(`gdsfactory ${version} imported successfully`, 'success');
+                    updateProgress(100, 'POC Complete!');
+                } catch (e) {
+                    addStatus(`gdsfactory import failed: ${e.message}`, 'error');
+                    addStatus('Trying gdstk as fallback...', 'info');
+
+                    try {
+                        await micropip.install("gdstk");
+                        const gdstk_version = await pyodide.runPythonAsync(`
+                            import gdstk
+                            gdstk.__version__
+                        `);
+                        addStatus(`gdstk ${gdstk_version} imported successfully (fallback)`, 'success');
+                        addStatus('Note: Using gdstk instead of gdsfactory', 'info');
+                        updateProgress(100, 'POC Complete (using gdstk fallback)');
+                    } catch (e2) {
+                        addStatus(`gdstk also failed: ${e2.message}`, 'error');
+                        throw new Error('Both gdsfactory and gdstk failed to import');
+                    }
+                }
+
+                // Enable test buttons
+                document.getElementById('testSimpleBtn').disabled = false;
+                document.getElementById('testComplexBtn').disabled = false;
+
+                addResult('POC Summary', 
+                    `Pyodide Load Time: ${loadTime}s\n` +
+                    `gdsfactory Install Time: ${installTime}s\n` +
+                    `Total Time: ${((performance.now() - startTime) / 1000).toFixed(2)}s\n\n` +
+                    `Status: SUCCESS ✓`
+                );
+
+            } catch (error) {
+                addStatus(`ERROR: ${error.message}`, 'error');
+                addResult('POC Failed', error.stack || error.message, true);
+                startBtn.disabled = false;
+            }
+        }
+
+        async function testSimpleComponent() {
+            if (!pyodide) {
+                addStatus('ERROR: Pyodide not loaded', 'error');
+                return;
+            }
+
+            try {
+                addStatus('Testing simple component...', 'info');
+
+                // Try gdsfactory first, fallback to gdstk
+                let code;
+                let componentName;
+
+                try {
+                    // Test if gdsfactory is available
+                    await pyodide.runPythonAsync('import gdsfactory as gf');
+                    componentName = 'ring_single() [gdsfactory]';
+                    code = `
+import gdsfactory as gf
+
+# Create a simple ring resonator
+c = gf.components.ring_single()
+
+# Write to virtual filesystem
+c.write_gds("test_simple.gds")
+
+# Get file info
+import os
+file_size = os.path.getsize("test_simple.gds")
+print(f"GDS file size: {file_size} bytes")
+
+file_size
+`;
+                } catch (e) {
+                    // Fallback to gdstk
+                    addStatus('gdsfactory not available, using gdstk...', 'info');
+                    componentName = 'rectangle [gdstk]';
+                    code = `
+import gdstk
+
+# Create a simple rectangle
+lib = gdstk.Library()
+cell = lib.new_cell("MAIN")
+rect = gdstk.rectangle((0, 0), (10, 10), layer=1)
+cell.add(rect)
+
+# Write to virtual filesystem
+lib.write_gds("test_simple.gds")
+
+# Get file info
+import os
+file_size = os.path.getsize("test_simple.gds")
+print(f"GDS file size: {file_size} bytes")
+
+file_size
+`;
+                }
+
+                const fileSize = await pyodide.runPythonAsync(code);
+
+                // Read the GDS file from Pyodide's virtual filesystem
+                const gdsData = pyodide.FS.readFile("test_simple.gds");
+
+                addStatus(`Simple component test SUCCESS`, 'success');
+                addResult('Simple Component Test',
+                    `Component: ${componentName}\n` +
+                    `GDS file size: ${fileSize} bytes\n` +
+                    `Binary data length: ${gdsData.length} bytes\n` +
+                    `First 16 bytes (hex): ${Array.from(gdsData.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}\n\n` +
+                    `Status: SUCCESS ✓`
+                );
+
+            } catch (error) {
+                addStatus(`Simple component test FAILED: ${error.message}`, 'error');
+                addResult('Simple Component Test Failed', error.stack || error.message, true);
+            }
+        }
+
+        async function testComplexComponent() {
+            if (!pyodide) {
+                addStatus('ERROR: Pyodide not loaded', 'error');
+                return;
+            }
+
+            try {
+                addStatus('Testing complex component...', 'info');
+
+                // Try gdsfactory first, fallback to gdstk
+                let code;
+                let componentName;
+
+                try {
+                    // Test if gdsfactory is available
+                    await pyodide.runPythonAsync('import gdsfactory as gf');
+                    componentName = 'MZI with routing [gdsfactory]';
+                    code = `
+import gdsfactory as gf
+
+# Create a more complex component with routing
+c = gf.Component("test_complex")
+
+# Add two MZIs
+mzi1 = c << gf.components.mzi()
+mzi2 = c << gf.components.mzi()
+
+# Position them
+mzi2.movex(200)
+
+# Route between them
+route = gf.routing.route_single(
+    c,
+    port1=mzi1.ports["o2"],
+    port2=mzi2.ports["o1"],
+    cross_section='strip',
+    bend='bend_euler'
+)
+
+# Write to virtual filesystem
+c.write_gds("test_complex.gds")
+
+# Get statistics
+import os
+file_size = os.path.getsize("test_complex.gds")
+num_polygons = len(c.get_polygons())
+bbox = c.bbox
+
+print(f"GDS file size: {file_size} bytes")
+print(f"Number of polygons: {num_polygons}")
+print(f"Bounding box: {bbox}")
+
+(file_size, num_polygons, list(bbox))
+`;
+                } catch (e) {
+                    // Fallback to gdstk
+                    addStatus('gdsfactory not available, using gdstk...', 'info');
+                    componentName = 'multiple shapes [gdstk]';
+                    code = `
+import gdstk
+
+# Create a more complex layout with multiple shapes
+lib = gdstk.Library()
+cell = lib.new_cell("MAIN")
+
+# Add multiple rectangles
+for i in range(5):
+    rect = gdstk.rectangle((i*15, 0), (i*15+10, 10), layer=1)
+    cell.add(rect)
+
+# Add a circle
+circle = gdstk.ellipse((50, 20), 5, layer=2)
+cell.add(circle)
+
+# Write to virtual filesystem
+lib.write_gds("test_complex.gds")
+
+# Get statistics
+import os
+file_size = os.path.getsize("test_complex.gds")
+bbox = cell.bounding_box()
+num_polygons = len(cell.polygons)
+
+print(f"GDS file size: {file_size} bytes")
+print(f"Number of polygons: {num_polygons}")
+print(f"Bounding box: {bbox}")
+
+(file_size, num_polygons, [bbox[0][0], bbox[0][1], bbox[1][0], bbox[1][1]])
+`;
+                }
+
+                const result = await pyodide.runPythonAsync(code);
+                const resultJs = result.toJs();
+                const fileSize = resultJs[0];
+                const numPolygons = resultJs[1];
+                const bbox = resultJs[2];
+
+                // Read the GDS file from Pyodide's virtual filesystem
+                const gdsData = pyodide.FS.readFile("test_complex.gds");
+
+                addStatus(`Complex component test SUCCESS`, 'success');
+                addResult('Complex Component Test',
+                    `Component: ${componentName}\n` +
+                    `GDS file size: ${fileSize} bytes\n` +
+                    `Binary data length: ${gdsData.length} bytes\n` +
+                    `Number of polygons: ${numPolygons}\n` +
+                    `Bounding box: ${JSON.stringify(bbox)}\n` +
+                    `First 16 bytes (hex): ${Array.from(gdsData.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}\n\n` +
+                    `Status: SUCCESS ✓`
+                );
+
+                // Test if we can parse it with the existing gdsii parser
+                addStatus('Testing compatibility with existing gdsii parser...', 'info');
+                testGDSIIParser(gdsData);
+
+            } catch (error) {
+                addStatus(`Complex component test FAILED: ${error.message}`, 'error');
+                addResult('Complex Component Test Failed', error.stack || error.message, true);
+            }
+        }
+
+        function testGDSIIParser(gdsData) {
+            try {
+                // Check GDS header (should start with 0x0006 0x0002 0x0258)
+                const header = new DataView(gdsData.buffer);
+                const recordLength = header.getUint16(0, false); // Big-endian
+                const recordType = header.getUint8(2);
+                const dataType = header.getUint8(3);
+
+                const isValidGDS = recordLength === 6 && recordType === 0 && dataType === 2;
+
+                if (isValidGDS) {
+                    addStatus('GDS header validation: PASS', 'success');
+                    addResult('GDS Parser Compatibility',
+                        `Header validation: PASS\n` +
+                        `Record length: ${recordLength}\n` +
+                        `Record type: ${recordType} (HEADER)\n` +
+                        `Data type: ${dataType}\n\n` +
+                        `The GDS file generated by Pyodide/gdsfactory appears to be valid\n` +
+                        `and should be parseable by the existing JavaScript gdsii parser.\n\n` +
+                        `Status: SUCCESS ✓`
+                    );
+                } else {
+                    addStatus('GDS header validation: FAIL', 'error');
+                    addResult('GDS Parser Compatibility',
+                        `Header validation: FAIL\n` +
+                        `Expected: recordLength=6, recordType=0, dataType=2\n` +
+                        `Got: recordLength=${recordLength}, recordType=${recordType}, dataType=${dataType}\n\n` +
+                        `Status: FAILED ✗`,
+                        true
+                    );
+                }
+            } catch (error) {
+                addStatus(`GDS parser test FAILED: ${error.message}`, 'error');
+                addResult('GDS Parser Compatibility Failed', error.stack || error.message, true);
+            }
+        }
+    </script>
+</body>
+</html>
+
