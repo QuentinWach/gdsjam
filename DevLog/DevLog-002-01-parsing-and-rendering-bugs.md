@@ -335,6 +335,132 @@ PATH support is essential for:
 
 This requires more substantial implementation but is critical for compatibility.
 
+## Development Guidelines and Coding Standards
+
+### Debug Logging System
+
+**CRITICAL**: Module-specific debug flags must be used for all debug logging.
+
+#### Setup (Completed)
+- Created `src/lib/debug.ts` with module-specific flags
+- All flags default to `false` in code
+- Flags enabled via `.env.local` (NOT committed to git)
+- `.env.example` documents available flags (all commented out)
+
+#### Available Debug Flags
+```typescript
+// src/lib/debug.ts
+export const DEBUG_PARSER = import.meta.env.VITE_DEBUG_PARSER === "true" || false;
+export const DEBUG_RENDERER = import.meta.env.VITE_DEBUG_RENDERER === "true" || false;
+export const DEBUG_LOD = import.meta.env.VITE_DEBUG_LOD === "true" || false;
+export const DEBUG_VIEWPORT = import.meta.env.VITE_DEBUG_VIEWPORT === "true" || false;
+export const DEBUG_COLLABORATION = import.meta.env.VITE_DEBUG_COLLABORATION === "true" || false;
+```
+
+#### Usage Pattern
+```typescript
+import { DEBUG_PARSER } from "../debug";
+
+if (DEBUG_PARSER) {
+    console.log('[GDSParser] Debug message here');
+}
+```
+
+#### Rules
+1. **NEVER** use global `DEBUG` flag from `config.ts`
+2. **NEVER** commit `.env.local` to git
+3. **ALWAYS** wrap console.log in module-specific flag check
+4. **NEVER** leave debug logs enabled in production
+5. All flags must default to `false` in code
+6. Flags are enabled ONLY in `.env.local` for local development
+
+#### Rationale
+- Previous global DEBUG flag flooded production with logs
+- Took one full day to clean up the mess
+- Module-specific flags allow targeted debugging
+- Explicit opt-in prevents accidental production logging
+
+### Package Management
+
+**CRITICAL**: Always use package managers, never manually edit package files.
+
+#### Rules
+1. **ALWAYS** use `pnpm` (this project's package manager)
+2. **NEVER** manually edit `package.json` for dependencies
+3. Use `pnpm add <package>` to install
+4. Use `pnpm remove <package>` to uninstall
+5. Only edit `package.json` for scripts, config, or metadata
+
+#### Rationale
+- Package managers handle version resolution
+- Prevent dependency conflicts
+- Automatically update lock files
+- AI models may hallucinate incorrect versions
+
+### Scope and File Creation
+
+**CRITICAL**: Minimize unsolicited file creation and documentation.
+
+#### Rules
+1. Do what has been asked; nothing more, nothing less
+2. **NEVER** create files unless absolutely necessary
+3. **ALWAYS** prefer editing existing files over creating new ones
+4. **NEVER** proactively create documentation files (*.md) unless explicitly requested
+5. **NEVER** create README files unless explicitly requested
+6. **NEVER** summarize actions in files unless explicitly requested
+
+### Completeness and Downstream Changes
+
+**CRITICAL**: After every edit, find ALL downstream changes needed.
+
+#### Rules
+1. After **EVERY** edit, use `codebase-retrieval` to find downstream changes
+2. Find ALL callers and call sites affected by API changes
+3. Find ALL implementations of changed interfaces/abstract methods
+4. Find ALL subclasses that need updates
+5. Update existing tests affected by changes
+6. **NEVER** create new test files unless explicitly requested
+7. Update type definitions, interfaces, schemas
+8. Update import statements
+9. Update configuration files
+
+#### Rationale
+- Missing related changes is a critical failure
+- Incomplete changes break the codebase
+- Tests must stay in sync with code changes
+
+### Project-Specific Conventions
+
+#### Mobile-First Design
+- Mobile is first-class citizen
+- All UI must work on mobile
+
+#### No Animations
+- **ALWAYS** use instant/immediate transitions
+- **NO** animations for viewport navigation, jumps, or UI transitions
+- Animation is explicitly unwanted ("adiabatic murdering")
+
+#### Collaboration Architecture
+- HOST uses localStorage as ground truth (survives refresh)
+- VIEWERS use Y.js as ground truth (defer to host)
+- Without session: pure frontend-only viewer, no server communication
+- **ALWAYS** have a host - check every tick, auto-claim if no host exists
+- Host transfers buffered, update only at next tick (not immediately)
+
+#### LOD Rendering Strategy
+- Prefer polygon-count-based and performance-based strategies
+- **NOT** zoom-level-based (zoom is arbitrary, not calibrated)
+- Zoom limits based on scale bar: 1 nm (max zoom in) to 1 m (max zoom out)
+
+#### WebRTC Configuration
+- `filterBcConns` in `y-webrtc` must **ALWAYS** be `true`
+- Forces communication and file transfer with signaling server
+
+#### Example File Hosting
+- Prefer Hugging Face repos over GitHub raw URLs
+- Hugging Face is more open and flexible for file loading
+- GitHub has more constraints
+
 ## References
 
 - GDSII Spec: PATH records have LAYER, DATATYPE, WIDTH, PATHTYPE, XY

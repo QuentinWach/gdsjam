@@ -14,6 +14,7 @@ import type {
 	Point,
 	Polygon,
 } from "../../types/gds";
+import { DEBUG_PARSER } from "../debug";
 import { generateUUID } from "../utils/uuid";
 
 /**
@@ -661,6 +662,19 @@ async function buildGDSDocument(
 		}
 	}
 	const topCells = Array.from(allCellNames).filter((name) => !referencedCells.has(name));
+
+	if (DEBUG_PARSER) {
+		console.log(`[GDSParser] Total cells: ${cells.size}, Top cells: ${topCells.length}`);
+		console.log(`[GDSParser] Top cells:`, topCells);
+		for (const topCellName of topCells) {
+			const cell = cells.get(topCellName);
+			if (cell) {
+				console.log(
+					`[GDSParser]   ${topCellName}: ${cell.polygons.length} polygons, ${cell.instances.length} instances`,
+				);
+			}
+		}
+	}
 
 	// Calculate global bounding box
 	let globalMinX = Number.POSITIVE_INFINITY;
