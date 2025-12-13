@@ -54,6 +54,21 @@ export const EXAMPLES: Example[] = [
 		previewOverviewUrl: `${PREVIEWS_BASE_URL}/y-splitter.png`,
 	},
 
+	{
+		id: "pic-example-20251213",
+		name: "PIC Example",
+		description: "Photonic Integrated Circuit example",
+		category: "photonics",
+		source: "other",
+		attribution: "jwt625",
+		sourceUrl: "https://huggingface.co/datasets/jwt625/gdsii",
+		license: "MIT",
+		url: `${EXAMPLES_BASE_URL}/PIC_example_20251213.gds`,
+		fileSizeMB: 0.5,
+		isCompressed: false,
+		previewOverviewUrl: `${PREVIEWS_BASE_URL}/PIC_example_20251213.png`,
+	},
+
 	// ============================================
 	// DIGITAL EXAMPLES (from TinyTapeout)
 	// ============================================

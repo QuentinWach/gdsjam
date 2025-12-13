@@ -32,6 +32,10 @@ const EXAMPLES = [
 		url: "https://raw.githubusercontent.com/gdsfactory/ubc/main/ubcpdk/gds/EBeam/ebeam_y_1550.gds",
 	},
 	{
+		id: "pic-example-20251213",
+		url: "https://huggingface.co/datasets/jwt625/gdsii/resolve/main/PIC_example_20251213.gds",
+	},
+	{
 		id: "tt02-fpga",
 		url: "https://raw.githubusercontent.com/TinyTapeout/tinytapeout-02/tt02/gds/gatecat_fpga_top.gds.gz",
 	},
