@@ -14,6 +14,7 @@ import type {
 	Point,
 	Polygon,
 } from "../../types/gds";
+import { DEBUG_PARSER } from "../debug";
 import { generateUUID } from "../utils/uuid";
 
 /**
@@ -487,10 +488,19 @@ async function buildGDSDocument(
 				break;
 
 			case RecordType.ENDEL: // End element
-				if (currentPolygon && currentCell) {
-					// Add polygon to current cell
-					currentCell.polygons.push(currentPolygon as Polygon);
-					polygonCount++;
+				if (currentPolygon && currentCell && currentPolygon.points) {
+					// Filter degenerate polygons (< 3 unique points)
+					const uniquePoints = new Set(currentPolygon.points.map((p) => `${p.x},${p.y}`));
+
+					if (uniquePoints.size >= 3) {
+						// Add polygon to current cell
+						currentCell.polygons.push(currentPolygon as Polygon);
+						polygonCount++;
+					} else if (DEBUG_PARSER) {
+						console.log(
+							`[GDSParser] Skipping degenerate polygon with ${uniquePoints.size} unique points in cell ${currentCell.name}`,
+						);
+					}
 
 					// Track layer
 					const layerKey = `${currentPolygon.layer}:${currentPolygon.datatype}`;
@@ -653,14 +663,32 @@ async function buildGDSDocument(
 	}
 
 	// Find top cells (cells not referenced by others)
+	// Exclude references from context cells (e.g., $$$CONTEXT_INFO$$$) as they're just library metadata
 	const allCellNames = new Set(cells.keys());
 	const referencedCells = new Set<string>();
 	for (const cell of cells.values()) {
-		for (const instance of cell.instances) {
-			referencedCells.add(instance.cellRef);
+		// Skip context cells when building referenced cells set
+		const isContextCell = cell.name.includes("CONTEXT_INFO") || cell.name.startsWith("$$$");
+		if (!isContextCell) {
+			for (const instance of cell.instances) {
+				referencedCells.add(instance.cellRef);
+			}
 		}
 	}
 	const topCells = Array.from(allCellNames).filter((name) => !referencedCells.has(name));
+
+	if (DEBUG_PARSER) {
+		console.log(`[GDSParser] Total cells: ${cells.size}, Top cells: ${topCells.length}`);
+		console.log(`[GDSParser] Top cells:`, topCells);
+		for (const topCellName of topCells) {
+			const cell = cells.get(topCellName);
+			if (cell) {
+				console.log(
+					`[GDSParser]   ${topCellName}: ${cell.polygons.length} polygons, ${cell.instances.length} instances`,
+				);
+			}
+		}
+	}
 
 	// Calculate global bounding box
 	let globalMinX = Number.POSITIVE_INFINITY;
