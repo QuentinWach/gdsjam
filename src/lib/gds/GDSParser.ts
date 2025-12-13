@@ -450,6 +450,7 @@ function parseGDSWithDiagnostics(fileData: Uint8Array): Array<{ tag: number; dat
 	const records: Array<{ tag: number; data: any }> = [];
 	let recordCount = 0;
 	let lastSuccessfulTag: number | null = null;
+	let endLibEncountered = false;
 
 	try {
 		// Try the fast library parser first
@@ -457,8 +458,22 @@ function parseGDSWithDiagnostics(fileData: Uint8Array): Array<{ tag: number; dat
 			records.push(record);
 			lastSuccessfulTag = record.tag;
 			recordCount++;
+
+			// Track if we've seen ENDLIB (end of library)
+			if (record.tag === RecordType.ENDLIB) {
+				endLibEncountered = true;
+			}
 		}
 	} catch (error) {
+		// If we've already seen ENDLIB, treat subsequent errors as warnings
+		// This handles files with padding bytes or garbage data after the valid GDSII stream
+		if (endLibEncountered) {
+			console.warn(
+				`[GDSParser] Encountered error after ENDLIB record. Ignoring trailing data. Error: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return records;
+		}
+
 		if (error instanceof GDSParseError) {
 			const errorMsg = error.message;
 			const lastRecordInfo =
@@ -508,6 +523,14 @@ function parseGDSWithDiagnostics(fileData: Uint8Array): Array<{ tag: number; dat
 				lastSuccessfulRecord: lastRecordInfo,
 			});
 
+			// Check for "Invalid record length: 0" specifically
+			if (errorMsg.includes("Invalid record length: 0")) {
+				throw new Error(
+					`GDSII parsing failed at record ${recordCount + 1} (after ${lastRecordInfo}): ${errorMsg}. ` +
+						"This usually indicates corrupted data or unexpected padding bytes.",
+				);
+			}
+
 			// Provide more helpful error message
 			if (errorMsg.includes("Unknown record type")) {
 				throw new Error(
@@ -529,6 +552,56 @@ function parseGDSWithDiagnostics(fileData: Uint8Array): Array<{ tag: number; dat
 }
 
 /**
+ * Trim trailing zeros/padding from GDSII file buffer
+ * Some files have zero-padding after the ENDLIB record which can cause parser errors
+ */
+export function trimTrailingPadding(buffer: ArrayBuffer): ArrayBuffer {
+	// GDSII End of Library record is 4 bytes: 0x00 0x04 0x04 0x00
+	// const ENDLIB_HEX = "00040400"; // This is the hex value of the ENDLIB record
+
+	const uint8Array = new Uint8Array(buffer);
+
+	// If file is small, just return it
+	if (uint8Array.length < 4) return buffer;
+
+	// Quick check: if the last 4 bytes are ENDLIB, no trimming needed
+	if (
+		uint8Array[uint8Array.length - 4] === 0x00 &&
+		uint8Array[uint8Array.length - 3] === 0x04 &&
+		uint8Array[uint8Array.length - 2] === 0x04 &&
+		uint8Array[uint8Array.length - 1] === 0x00
+	) {
+		return buffer;
+	}
+
+	// Find the last occurrence of ENDLIB
+	// We scan from the end backwards
+	let endLibIndex = -1;
+
+	for (let i = uint8Array.length - 4; i >= 0; i--) {
+		if (
+			uint8Array[i] === 0x00 &&
+			uint8Array[i + 1] === 0x04 &&
+			uint8Array[i + 2] === 0x04 &&
+			uint8Array[i + 3] === 0x00
+		) {
+			endLibIndex = i;
+			break;
+		}
+	}
+
+	// If ENDLIB found and there is data after it
+	if (endLibIndex !== -1 && endLibIndex + 4 < uint8Array.length) {
+		console.warn(
+			`[GDSParser] Found data after ENDLIB at offset ${endLibIndex}. Trimming ${uint8Array.length - (endLibIndex + 4)} bytes.`,
+		);
+		return buffer.slice(0, endLibIndex + 4);
+	}
+
+	return buffer;
+}
+
+/**
  * Parse GDSII file and convert to GDSDocument
  */
 export async function parseGDSII(
@@ -546,11 +619,15 @@ export async function parseGDSII(
 
 		onProgress?.(10, "Converting file data...");
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		const fileData = new Uint8Array(fileBuffer);
 
 		// Validate file format before parsing
 		onProgress?.(15, "Validating file format...");
 		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		// Trim any padding after ENDLIB to prevent parser errors
+		const trimmedBuffer = trimTrailingPadding(fileBuffer);
+		const fileData = new Uint8Array(trimmedBuffer);
+
 		validateGDSIIFormat(fileData);
 
 		onProgress?.(20, "Parsing GDSII records...");
@@ -758,6 +835,20 @@ async function buildGDSDocument(
 				break;
 
 			case RecordType.ENDEL: // End element
+				if (currentPolygon && currentCell) {
+					// Validate polygon has required fields
+					if (currentPolygon.layer === undefined) {
+						// Use last known layer or default to 0
+						currentPolygon.layer = currentLayer || 0;
+					}
+
+					if (currentPolygon.datatype === undefined) {
+						currentPolygon.datatype = currentDatatype || 0;
+					}
+
+					// Add polygon to current cell
+					currentCell.polygons.push(currentPolygon as Polygon);
+					polygonCount++;
 				if (currentPolygon && currentCell && currentPolygon.points) {
 					// Filter degenerate polygons (< 3 unique points)
 					const uniquePoints = new Set(currentPolygon.points.map((p) => `${p.x},${p.y}`));
@@ -789,6 +880,13 @@ async function buildGDSDocument(
 
 					currentPolygon = null;
 				} else if (currentInstance && currentCell) {
+					// Validate instance has required fields
+					if (!currentInstance.cellRef) {
+						console.warn("[GDSParser] Instance missing cell reference, skipping");
+						currentInstance = null;
+						break;
+					}
+
 					currentCell.instances.push(currentInstance as CellInstance);
 					instanceCount++;
 					currentInstance = null;
