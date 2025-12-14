@@ -27,6 +27,7 @@ import {
 	MAX_POLYGONS_PER_RENDER,
 	POLYGON_FILL_MODE,
 } from "../config";
+import { DEBUG_MEASUREMENT } from "../debug";
 import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
 import { InputController } from "./controls/InputController";
 import { LODManager } from "./lod/LODManager";
@@ -914,6 +915,12 @@ export class PixiRenderer {
 		visible: boolean,
 		highlightedMeasurementId: string | null,
 	): void {
+		if (!this.measurementOverlay) {
+			if (DEBUG_MEASUREMENT) {
+				console.warn("[PixiRenderer] measurementOverlay not initialized yet");
+			}
+			return;
+		}
 		this.measurementOverlay.update(
 			measurements,
 			activeMeasurement,

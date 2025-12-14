@@ -7,6 +7,7 @@ import type {
 	CommentPermissions,
 	ParticipantViewport,
 } from "../../lib/collaboration/types";
+import { DEBUG_MEASUREMENT } from "../../lib/debug";
 import { KeyboardShortcutManager } from "../../lib/keyboard/KeyboardShortcutManager";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { generateUUID } from "../../lib/utils/uuid";
@@ -475,11 +476,15 @@ function handleMKeyUp(event: KeyboardEvent): void {
 function handleCanvasClick(event: MouseEvent | PointerEvent): void {
 	if (!renderer) return;
 
-	console.log("[DEBUG] Canvas click, measurementModeActive:", measurementModeActive);
+	if (DEBUG_MEASUREMENT) {
+		console.log("[ViewerCanvas] Canvas click, measurementModeActive:", measurementModeActive);
+	}
 
 	// Handle measurement mode
 	if (measurementModeActive) {
-		console.log("[DEBUG] In measurement mode, adding point");
+		if (DEBUG_MEASUREMENT) {
+			console.log("[ViewerCanvas] In measurement mode, adding point");
+		}
 		// For touch devices in mobile mode, use touch-and-drag gesture instead
 		if (
 			typeof window !== "undefined" &&
@@ -921,7 +926,7 @@ $effect(() => {
 	const mv = measurementsVisible;
 	const hm = highlightedMeasurementId;
 	const cwp = cursorWorldPos;
-	const vv = viewportVersion; // Trigger update on viewport changes
+	void viewportVersion; // Trigger update on viewport changes
 
 	// Update measurement overlay
 	renderer.updateMeasurementOverlay(m, am, cwp, mv, hm);

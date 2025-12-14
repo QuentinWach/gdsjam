@@ -12,6 +12,7 @@
  */
 
 import { get, writable } from "svelte/store";
+import { DEBUG_MEASUREMENT } from "../lib/debug";
 import type {
 	ActiveMeasurement,
 	DistanceMeasurement,
@@ -351,7 +352,9 @@ function createMeasurementStore() {
 					measurements,
 				}));
 			} catch (error) {
-				console.error("[measurementStore] Failed to load from localStorage:", error);
+				if (DEBUG_MEASUREMENT) {
+					console.error("[measurementStore] Failed to load from localStorage:", error);
+				}
 			}
 		},
 
@@ -366,7 +369,9 @@ function createMeasurementStore() {
 				const measurements = Array.from(state.measurements.values());
 				localStorage.setItem(key, JSON.stringify(measurements));
 			} catch (error) {
-				console.error("[measurementStore] Failed to save to localStorage:", error);
+				if (DEBUG_MEASUREMENT) {
+					console.error("[measurementStore] Failed to save to localStorage:", error);
+				}
 			}
 		},
 
