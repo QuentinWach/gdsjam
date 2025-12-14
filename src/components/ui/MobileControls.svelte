@@ -10,6 +10,7 @@ interface Props {
 	onToggleCommentMode?: () => void;
 	onToggleCommentsVisibility?: () => void;
 	onToggleCommentPanel?: () => void;
+	onToggleEditorMode?: () => void;
 	performanceVisible: boolean;
 	layersVisible: boolean;
 	minimapVisible?: boolean;
@@ -17,6 +18,7 @@ interface Props {
 	commentModeActive?: boolean;
 	commentsVisible?: boolean;
 	commentPanelVisible?: boolean;
+	editorModeActive?: boolean;
 }
 
 const {
@@ -28,6 +30,7 @@ const {
 	onToggleCommentMode,
 	onToggleCommentsVisibility,
 	onToggleCommentPanel,
+	onToggleEditorMode,
 	performanceVisible,
 	layersVisible,
 	minimapVisible = true,
@@ -35,6 +38,7 @@ const {
 	commentModeActive = false,
 	commentsVisible = true,
 	commentPanelVisible = false,
+	editorModeActive = false,
 }: Props = $props();
 
 let menuOpen = $state(false);
@@ -90,6 +94,11 @@ function handleToggleCommentsVisibility() {
 
 function handleToggleCommentPanel() {
 	onToggleCommentPanel?.();
+	menuOpen = false;
+}
+
+function handleToggleEditorMode() {
+	onToggleEditorMode?.();
 	menuOpen = false;
 }
 </script>
@@ -215,6 +224,15 @@ function handleToggleCommentPanel() {
 					<line x1="9" y1="13" x2="15" y2="13"/>
 				</svg>
 				<span>Comment Panel</span>
+			</button>
+
+			<!-- Editor Mode Toggle -->
+			<button class="menu-item" onclick={handleToggleEditorMode} class:active={editorModeActive} title="Toggle Editor Mode (Hold E)">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<polyline points="16 18 22 12 16 6"/>
+					<polyline points="8 6 2 12 8 18"/>
+				</svg>
+				<span>Editor Mode</span>
 			</button>
 		</div>
 	{/if}

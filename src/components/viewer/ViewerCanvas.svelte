@@ -12,6 +12,7 @@ import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { generateUUID } from "../../lib/utils/uuid";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { commentStore } from "../../stores/commentStore";
+import { editorStore } from "../../stores/editorStore";
 import { gdsStore } from "../../stores/gdsStore";
 import { layerStore } from "../../stores/layerStore";
 import type { BoundingBox, GDSDocument } from "../../types/gds";
@@ -85,6 +86,9 @@ const allCommentsVisible = $derived($commentStore.allCommentsVisible);
 const commentPermissions = $derived($commentStore.permissions);
 // Track viewport changes to trigger comment bubble position updates
 let viewportVersion = $state(0);
+
+// Editor mode state
+const editorModeActive = $derived($editorStore.editorModeActive);
 
 // Minimap state
 let viewportBounds = $state<BoundingBox | null>(null);
@@ -924,6 +928,7 @@ function toggleMinimap() {
 		onToggleCommentMode={() => { commentModeActive = !commentModeActive; }}
 		onToggleCommentsVisibility={() => commentStore.toggleAllCommentsVisibility()}
 		onToggleCommentPanel={() => { commentPanelVisible = !commentPanelVisible; }}
+		onToggleEditorMode={onToggleEditorMode}
 		performanceVisible={panelsVisible}
 		minimapVisible={minimapVisible}
 		layersVisible={layerPanelVisible}
@@ -931,6 +936,7 @@ function toggleMinimap() {
 		{commentModeActive}
 		commentsVisible={allCommentsVisible}
 		{commentPanelVisible}
+		{editorModeActive}
 	/>
 
 	<!-- Comment input modal -->
