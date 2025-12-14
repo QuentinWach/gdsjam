@@ -98,12 +98,33 @@ export class MeasurementOverlay {
 		graphics.lineTo(screen2.x, screen2.y);
 		graphics.stroke();
 
-		// Draw endpoint circles
-		const circleRadius = isHighlighted ? 5 : 4;
-		graphics.circle(screen1.x, screen1.y, circleRadius);
-		graphics.fill({ color: lineColor, alpha: 1.0 });
-		graphics.circle(screen2.x, screen2.y, circleRadius);
-		graphics.fill({ color: lineColor, alpha: 1.0 });
+		// Draw endpoint ticks perpendicular to the line (same style as scale bar)
+		const tickWidth = 2;
+		const tickHeight = isHighlighted ? 14 : 12;
+
+		// Calculate angle of the measurement line
+		const dx = screen2.x - screen1.x;
+		const dy = screen2.y - screen1.y;
+		const angle = Math.atan2(dy, dx);
+
+		// Perpendicular angle (rotate by 90 degrees)
+		const perpAngle = angle + Math.PI / 2;
+
+		// Calculate tick endpoints perpendicular to the line
+		const halfTickHeight = tickHeight / 2;
+		const tickDx = Math.cos(perpAngle) * halfTickHeight;
+		const tickDy = Math.sin(perpAngle) * halfTickHeight;
+
+		// Draw tick at point1
+		graphics.setStrokeStyle({ width: tickWidth, color: lineColor, alpha: 1.0 });
+		graphics.moveTo(screen1.x - tickDx, screen1.y - tickDy);
+		graphics.lineTo(screen1.x + tickDx, screen1.y + tickDy);
+		graphics.stroke();
+
+		// Draw tick at point2
+		graphics.moveTo(screen2.x - tickDx, screen2.y - tickDy);
+		graphics.lineTo(screen2.x + tickDx, screen2.y + tickDy);
+		graphics.stroke();
 
 		this.container.addChild(graphics);
 
@@ -186,9 +207,26 @@ export class MeasurementOverlay {
 
 		graphics.stroke();
 
-		// Draw first point circle
-		graphics.circle(screen1.x, screen1.y, 4);
-		graphics.fill({ color: lineColor, alpha: 1.0 });
+		// Draw first point tick perpendicular to the line (same style as scale bar)
+		const tickWidth = 2;
+		const tickHeight = 12;
+
+		// Calculate angle of the measurement line
+		const angle = Math.atan2(dy, dx);
+
+		// Perpendicular angle (rotate by 90 degrees)
+		const perpAngle = angle + Math.PI / 2;
+
+		// Calculate tick endpoints perpendicular to the line
+		const halfTickHeight = tickHeight / 2;
+		const tickDx = Math.cos(perpAngle) * halfTickHeight;
+		const tickDy = Math.sin(perpAngle) * halfTickHeight;
+
+		// Draw tick at point1
+		graphics.setStrokeStyle({ width: tickWidth, color: lineColor, alpha: 1.0 });
+		graphics.moveTo(screen1.x - tickDx, screen1.y - tickDy);
+		graphics.lineTo(screen1.x + tickDx, screen1.y + tickDy);
+		graphics.stroke();
 
 		this.container.addChild(graphics);
 	}
