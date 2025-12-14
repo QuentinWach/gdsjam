@@ -726,6 +726,104 @@ function handleMouseMove(event: MouseEvent): void {
 }
 
 /**
+ * Handle touch start for measurement mode on mobile
+ * Touch down = first click (place first point)
+ */
+function handleMeasurementTouchStart(event: TouchEvent): void {
+	if (!renderer) return;
+	if (event.touches.length !== 1) return; // Only handle single touch
+
+	// Stop event propagation to prevent TouchController from processing it
+	event.stopImmediatePropagation();
+	// Prevent default to stop browser scrolling
+	event.preventDefault();
+
+	const touch = event.touches[0];
+	if (!touch) return;
+
+	// Get touch position relative to canvas
+	const rect = canvas.getBoundingClientRect();
+	const screenX = touch.clientX - rect.left;
+	const screenY = touch.clientY - rect.top;
+
+	// Convert screen coordinates to world coordinates
+	const viewportState = renderer.getViewportState();
+	const worldX = (screenX - viewportState.x) / viewportState.scale;
+	const worldY = -((screenY - viewportState.y) / viewportState.scale);
+
+	// Add first point
+	const documentUnits = $gdsStore.document?.units || { database: 1e-9, user: 1e-6 };
+	measurementStore.addPoint(worldX, worldY, documentUnits);
+
+	// Update cursor position for tracking
+	cursorWorldPos = { worldX, worldY };
+}
+
+/**
+ * Handle touch move for measurement mode on mobile
+ * Drag = mouse move (update cursor position)
+ */
+function handleMeasurementTouchMove(event: TouchEvent): void {
+	if (!renderer) return;
+	if (event.touches.length !== 1) return; // Only handle single touch
+
+	// Stop event propagation to prevent TouchController from processing it
+	event.stopImmediatePropagation();
+	// Prevent default to stop browser scrolling
+	event.preventDefault();
+
+	const touch = event.touches[0];
+	if (!touch) return;
+
+	// Get touch position relative to canvas
+	const rect = canvas.getBoundingClientRect();
+	const screenX = touch.clientX - rect.left;
+	const screenY = touch.clientY - rect.top;
+
+	// Convert screen coordinates to world coordinates
+	const viewportState = renderer.getViewportState();
+	const worldX = (screenX - viewportState.x) / viewportState.scale;
+	const worldY = -((screenY - viewportState.y) / viewportState.scale);
+
+	// Update cursor position for tracking
+	cursorWorldPos = { worldX, worldY };
+}
+
+/**
+ * Handle touch end for measurement mode on mobile
+ * Let go touch = second click (place second point and complete measurement)
+ */
+function handleMeasurementTouchEnd(event: TouchEvent): void {
+	if (!renderer) return;
+	if (event.changedTouches.length !== 1) return;
+
+	// Stop event propagation to prevent TouchController from processing it
+	event.stopImmediatePropagation();
+	// Prevent default to stop browser scrolling
+	event.preventDefault();
+
+	const touch = event.changedTouches[0];
+	if (!touch) return;
+
+	// Get touch position relative to canvas
+	const rect = canvas.getBoundingClientRect();
+	const screenX = touch.clientX - rect.left;
+	const screenY = touch.clientY - rect.top;
+
+	// Convert screen coordinates to world coordinates
+	const viewportState = renderer.getViewportState();
+	const worldX = (screenX - viewportState.x) / viewportState.scale;
+	const worldY = -((screenY - viewportState.y) / viewportState.scale);
+
+	// Add second point (completes measurement)
+	const documentUnits = $gdsStore.document?.units || { database: 1e-9, user: 1e-6 };
+	measurementStore.addPoint(worldX, worldY, documentUnits);
+
+	// Clear cursor position
+	cursorWorldPos = null;
+}
+
+/**
  * Handle Ctrl/Cmd+K to clear all measurements (KLayout-style)
  */
 function handleClearMeasurements(event: KeyboardEvent): void {
@@ -910,6 +1008,44 @@ onMount(() => {
 		if (mKeyHoldTimer) {
 			clearTimeout(mKeyHoldTimer);
 			mKeyHoldTimer = null;
+		}
+	};
+});
+
+/**
+ * Dynamically add/remove touch event listeners for measurement mode on mobile
+ * When measurement mode is active, touch events are used for drawing rulers instead of pan/zoom
+ */
+$effect(() => {
+	if (!canvas) return;
+
+	// Only manage touch listeners on mobile
+	const isMobile = typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT;
+	if (!isMobile) return;
+
+	if (measurementModeActive) {
+		// Add touch listeners for measurement in CAPTURE phase (fires before TouchController)
+		// with passive: false to allow preventDefault and stopImmediatePropagation
+		canvas.addEventListener("touchstart", handleMeasurementTouchStart, {
+			capture: true,
+			passive: false,
+		});
+		canvas.addEventListener("touchmove", handleMeasurementTouchMove, {
+			capture: true,
+			passive: false,
+		});
+		canvas.addEventListener("touchend", handleMeasurementTouchEnd, {
+			capture: true,
+			passive: false,
+		});
+	}
+
+	// Cleanup: remove listeners when measurement mode is deactivated or component unmounts
+	return () => {
+		if (isMobile && measurementModeActive) {
+			canvas.removeEventListener("touchstart", handleMeasurementTouchStart, { capture: true });
+			canvas.removeEventListener("touchmove", handleMeasurementTouchMove, { capture: true });
+			canvas.removeEventListener("touchend", handleMeasurementTouchEnd, { capture: true });
 		}
 	};
 });
