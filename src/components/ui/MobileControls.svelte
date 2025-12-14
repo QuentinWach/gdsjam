@@ -11,6 +11,7 @@ interface Props {
 	onToggleCommentsVisibility?: () => void;
 	onToggleCommentPanel?: () => void;
 	onToggleEditorMode?: () => void;
+	onToggleMeasurementMode?: () => void;
 	performanceVisible: boolean;
 	layersVisible: boolean;
 	minimapVisible?: boolean;
@@ -19,6 +20,7 @@ interface Props {
 	commentsVisible?: boolean;
 	commentPanelVisible?: boolean;
 	editorModeActive?: boolean;
+	measurementModeActive?: boolean;
 }
 
 const {
@@ -31,6 +33,7 @@ const {
 	onToggleCommentsVisibility,
 	onToggleCommentPanel,
 	onToggleEditorMode,
+	onToggleMeasurementMode,
 	performanceVisible,
 	layersVisible,
 	minimapVisible = true,
@@ -39,6 +42,7 @@ const {
 	commentsVisible = true,
 	commentPanelVisible = false,
 	editorModeActive = false,
+	measurementModeActive = false,
 }: Props = $props();
 
 let menuOpen = $state(false);
@@ -99,6 +103,11 @@ function handleToggleCommentPanel() {
 
 function handleToggleEditorMode() {
 	onToggleEditorMode?.();
+	menuOpen = false;
+}
+
+function handleToggleMeasurementMode() {
+	onToggleMeasurementMode?.();
 	menuOpen = false;
 }
 </script>
@@ -233,6 +242,19 @@ function handleToggleEditorMode() {
 					<polyline points="8 6 2 12 8 18"/>
 				</svg>
 				<span>Editor Mode</span>
+			</button>
+
+			<!-- Measurement Mode Toggle -->
+			<button class="menu-item" onclick={handleToggleMeasurementMode} class:active={measurementModeActive} title="Toggle Measurement Mode (Hold M)">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M3 3l18 18"/>
+					<path d="M3 21V3h18"/>
+					<path d="M7 7v14"/>
+					<path d="M11 11v10"/>
+					<path d="M15 15v6"/>
+					<path d="M19 19v2"/>
+				</svg>
+				<span>Measure Distance</span>
 			</button>
 		</div>
 	{/if}

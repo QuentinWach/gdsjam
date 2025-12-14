@@ -15,6 +15,7 @@ import { commentStore } from "../../stores/commentStore";
 import { editorStore } from "../../stores/editorStore";
 import { gdsStore } from "../../stores/gdsStore";
 import { layerStore } from "../../stores/layerStore";
+import { measurementStore } from "../../stores/measurementStore";
 import type { BoundingBox, GDSDocument } from "../../types/gds";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import CommentBubble from "../comments/CommentBubble.svelte";
@@ -74,6 +75,12 @@ const EDITOR_HOLD_DURATION_MS = 500;
 let eKeyDownTime: number | null = null;
 let eKeyHoldTimer: ReturnType<typeof setTimeout> | null = null;
 
+// M key hold detection for measurement mode
+const MEASUREMENT_HOLD_DURATION_MS = 500;
+let mKeyDownTime: number | null = null;
+let mKeyHoldTimer: ReturnType<typeof setTimeout> | null = null;
+let mKeyTriggeredHold = false;
+
 // Comment mode state
 let commentModeActive = $state(false);
 let showCommentModal = $state(false);
@@ -89,6 +96,14 @@ let viewportVersion = $state(0);
 
 // Editor mode state
 const editorModeActive = $derived($editorStore.editorModeActive);
+
+// Measurement mode state
+const measurementModeActive = $derived($measurementStore.measurementModeActive);
+const measurements = $derived($measurementStore.measurements);
+const activeMeasurement = $derived($measurementStore.activeMeasurement);
+const measurementsVisible = $derived($measurementStore.measurementsVisible);
+const highlightedMeasurementId = $derived($measurementStore.highlightedMeasurementId);
+let cursorWorldPos: { x: number; y: number } | null = $state(null);
 
 // Minimap state
 let viewportBounds = $state<BoundingBox | null>(null);
@@ -138,14 +153,8 @@ function registerKeyboardShortcuts(): void {
 			},
 			description: "Toggle layer panel",
 		},
-		{
-			id: "toggle-minimap",
-			key: "KeyM",
-			callback: () => {
-				minimapVisible = !minimapVisible;
-			},
-			description: "Toggle minimap",
-		},
+		// Note: M key is handled by handleMKeyDown/handleMKeyUp for hold detection
+		// Short press = toggle minimap, Hold = toggle measurement mode
 		{
 			id: "toggle-fill",
 			key: "KeyO",
@@ -187,12 +196,18 @@ $effect(() => {
 					};
 
 					commentStore.initializeForSession(fileMetadata.fileHash, permissions);
+					// Initialize measurement store (local-only, even in collaboration)
+					const fName = fileMetadata.fileName || fileName;
+					const fSize = fileMetadata.fileSize || 0;
+					measurementStore.initializeForFile(fName, fSize);
 				}
 			}
 		} else {
 			// Solo mode: use fileName + fileSize
 			const fileSize = $gdsStore.statistics?.fileSizeBytes || 0;
 			commentStore.initializeForFile(fileName, fileSize);
+			// Initialize measurement store for solo mode (always local-only)
+			measurementStore.initializeForFile(fileName, fileSize);
 		}
 	}
 });
@@ -386,37 +401,140 @@ function handleEKeyUp(event: KeyboardEvent): void {
 }
 
 /**
- * Handle canvas click/tap for comment placement
- * Unified handler for both mouse and touch (via pointer events or click)
+ * Handle M key down - start hold detection timer for measurement mode
+ * Single press = toggle minimap, Hold = toggle measurement mode
  */
-function handleCanvasClick(event: MouseEvent | PointerEvent): void {
-	if (!commentModeActive || !renderer) return;
+function handleMKeyDown(event: KeyboardEvent): void {
+	// Only handle M key
+	if (event.code !== "KeyM") return;
 
-	// For touch devices in mobile mode, use the fixed crosshair button instead
-	if (
-		typeof window !== "undefined" &&
-		window.innerWidth < MOBILE_BREAKPOINT &&
-		"pointerType" in event &&
-		event.pointerType === "touch"
-	) {
+	// Don't handle in input fields
+	const target = event.target as HTMLElement;
+	if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
 		return;
 	}
 
-	// Get click position relative to canvas
-	const rect = canvas.getBoundingClientRect();
-	const screenX = event.clientX - rect.left;
-	const screenY = event.clientY - rect.top;
+	// Don't handle with modifiers
+	if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
 
-	// Convert screen coordinates to world coordinates (same logic as CoordinatesDisplay)
-	// Access mainContainer properties via renderer's viewport state
-	const viewportState = renderer.getViewportState();
-	const worldX = (screenX - viewportState.x) / viewportState.scale;
-	// Y-axis is flipped (mainContainer.scale.y = -1), so negate Y coordinate
-	const worldY = -((screenY - viewportState.y) / viewportState.scale);
+	// Ignore repeat events (key held down)
+	if (event.repeat) return;
 
-	// Store pending position and show modal
-	pendingCommentPosition = { worldX, worldY };
-	showCommentModal = true;
+	// Prevent default to avoid any browser shortcuts
+	event.preventDefault();
+
+	// Record keydown time and start timer
+	mKeyDownTime = Date.now();
+	mKeyTriggeredHold = false;
+
+	// Start hold detection timer
+	mKeyHoldTimer = setTimeout(() => {
+		// Hold threshold reached - toggle measurement mode
+		mKeyTriggeredHold = true;
+		measurementStore.toggleMeasurementMode();
+	}, MEASUREMENT_HOLD_DURATION_MS);
+}
+
+/**
+ * Handle M key up - if short press, toggle minimap; if hold, measurement mode already toggled
+ */
+function handleMKeyUp(event: KeyboardEvent): void {
+	// Only handle M key
+	if (event.code !== "KeyM") return;
+
+	// Clear the hold timer
+	if (mKeyHoldTimer) {
+		clearTimeout(mKeyHoldTimer);
+		mKeyHoldTimer = null;
+	}
+
+	// If we triggered hold, just reset the flag (measurement mode already toggled)
+	if (mKeyTriggeredHold) {
+		mKeyDownTime = null;
+		mKeyTriggeredHold = false;
+		return;
+	}
+
+	// Short press: toggle minimap
+	if (mKeyDownTime !== null) {
+		const holdDuration = Date.now() - mKeyDownTime;
+		if (holdDuration < MEASUREMENT_HOLD_DURATION_MS) {
+			minimapVisible = !minimapVisible;
+		}
+	}
+
+	// Reset state
+	mKeyDownTime = null;
+	mKeyTriggeredHold = false;
+}
+
+/**
+ * Handle canvas click/tap for comment placement and measurement
+ * Unified handler for both mouse and touch (via pointer events or click)
+ */
+function handleCanvasClick(event: MouseEvent | PointerEvent): void {
+	if (!renderer) return;
+
+	console.log("[DEBUG] Canvas click, measurementModeActive:", measurementModeActive);
+
+	// Handle measurement mode
+	if (measurementModeActive) {
+		console.log("[DEBUG] In measurement mode, adding point");
+		// For touch devices in mobile mode, use touch-and-drag gesture instead
+		if (
+			typeof window !== "undefined" &&
+			window.innerWidth < MOBILE_BREAKPOINT &&
+			"pointerType" in event &&
+			event.pointerType === "touch"
+		) {
+			return;
+		}
+
+		// Get click position relative to canvas
+		const rect = canvas.getBoundingClientRect();
+		const screenX = event.clientX - rect.left;
+		const screenY = event.clientY - rect.top;
+
+		// Convert screen coordinates to world coordinates
+		const viewportState = renderer.getViewportState();
+		const worldX = (screenX - viewportState.x) / viewportState.scale;
+		const worldY = -((screenY - viewportState.y) / viewportState.scale);
+
+		// Add point to measurement
+		const documentUnits = $gdsStore.document?.units || { database: 1e-9, user: 1e-6 };
+		measurementStore.addPoint(worldX, worldY, documentUnits);
+
+		return;
+	}
+
+	// Handle comment mode
+	if (commentModeActive) {
+		// For touch devices in mobile mode, use the fixed crosshair button instead
+		if (
+			typeof window !== "undefined" &&
+			window.innerWidth < MOBILE_BREAKPOINT &&
+			"pointerType" in event &&
+			event.pointerType === "touch"
+		) {
+			return;
+		}
+
+		// Get click position relative to canvas
+		const rect = canvas.getBoundingClientRect();
+		const screenX = event.clientX - rect.left;
+		const screenY = event.clientY - rect.top;
+
+		// Convert screen coordinates to world coordinates (same logic as CoordinatesDisplay)
+		// Access mainContainer properties via renderer's viewport state
+		const viewportState = renderer.getViewportState();
+		const worldX = (screenX - viewportState.x) / viewportState.scale;
+		// Y-axis is flipped (mainContainer.scale.y = -1), so negate Y coordinate
+		const worldY = -((screenY - viewportState.y) / viewportState.scale);
+
+		// Store pending position and show modal
+		pendingCommentPosition = { worldX, worldY };
+		showCommentModal = true;
+	}
 }
 
 /**
@@ -581,7 +699,48 @@ function handleRecenterViewport(worldX: number, worldY: number): void {
 }
 
 /**
- * Handle ESC key to cancel comment mode
+ * Handle mouse move for measurement cursor tracking
+ */
+function handleMouseMove(event: MouseEvent): void {
+	if (!measurementModeActive || !renderer) {
+		cursorWorldPos = null;
+		return;
+	}
+
+	// Get mouse position relative to canvas
+	const rect = canvas.getBoundingClientRect();
+	const screenX = event.clientX - rect.left;
+	const screenY = event.clientY - rect.top;
+
+	// Convert screen coordinates to world coordinates
+	const viewportState = renderer.getViewportState();
+	const worldX = (screenX - viewportState.x) / viewportState.scale;
+	const worldY = -((screenY - viewportState.y) / viewportState.scale);
+
+	cursorWorldPos = { x: worldX, y: worldY };
+}
+
+/**
+ * Handle Ctrl/Cmd+K to clear all measurements (KLayout-style)
+ */
+function handleClearMeasurements(event: KeyboardEvent): void {
+	// Check for Ctrl+K (Windows/Linux) or Cmd+K (Mac)
+	if (event.code !== "KeyK") return;
+	if (!event.ctrlKey && !event.metaKey) return;
+
+	// Don't handle in input fields
+	const target = event.target as HTMLElement;
+	if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+		return;
+	}
+
+	// Clear all measurements
+	measurementStore.clearAllMeasurements();
+	event.preventDefault();
+}
+
+/**
+ * Handle ESC key to cancel comment mode and measurement mode
  */
 function handleEscKey(event: KeyboardEvent): void {
 	if (event.code !== "Escape") return;
@@ -596,6 +755,13 @@ function handleEscKey(event: KeyboardEvent): void {
 	// Cancel comment mode if active
 	if (commentModeActive) {
 		commentModeActive = false;
+		event.preventDefault();
+		return;
+	}
+
+	// Cancel measurement mode if active
+	if (measurementModeActive) {
+		measurementStore.exitMeasurementMode();
 		event.preventDefault();
 	}
 }
@@ -616,11 +782,21 @@ onMount(() => {
 	window.addEventListener("keydown", handleEKeyDown);
 	window.addEventListener("keyup", handleEKeyUp);
 
-	// Register ESC key handler for cancelling comment mode
+	// Register M key handlers for measurement mode
+	window.addEventListener("keydown", handleMKeyDown);
+	window.addEventListener("keyup", handleMKeyUp);
+
+	// Register ESC key handler for cancelling modes
 	window.addEventListener("keydown", handleEscKey);
 
-	// Register canvas pointer handler for comment placement (handles both mouse and touch)
+	// Register Ctrl/Cmd+K handler for clearing measurements
+	window.addEventListener("keydown", handleClearMeasurements);
+
+	// Register canvas pointer handler for comment/measurement placement (handles both mouse and touch)
 	canvas.addEventListener("pointerup", handleCanvasClick);
+
+	// Register mouse move handler for measurement cursor tracking
+	canvas.addEventListener("mousemove", handleMouseMove);
 
 	// Listen for custom resize event from EditorLayout
 	const viewerContainer = canvas.parentElement;
@@ -697,11 +873,21 @@ onMount(() => {
 		window.removeEventListener("keydown", handleEKeyDown);
 		window.removeEventListener("keyup", handleEKeyUp);
 
+		// Remove M key handlers
+		window.removeEventListener("keydown", handleMKeyDown);
+		window.removeEventListener("keyup", handleMKeyUp);
+
 		// Remove ESC key handler
 		window.removeEventListener("keydown", handleEscKey);
 
+		// Remove Ctrl/Cmd+K handler
+		window.removeEventListener("keydown", handleClearMeasurements);
+
 		// Remove canvas pointer handler
 		canvas.removeEventListener("pointerup", handleCanvasClick);
+
+		// Remove mouse move handler
+		canvas.removeEventListener("mousemove", handleMouseMove);
 
 		// Clear any pending timers
 		if (fKeyHoldTimer) {
@@ -716,7 +902,29 @@ onMount(() => {
 			clearTimeout(eKeyHoldTimer);
 			eKeyHoldTimer = null;
 		}
+		if (mKeyHoldTimer) {
+			clearTimeout(mKeyHoldTimer);
+			mKeyHoldTimer = null;
+		}
 	};
+});
+
+/**
+ * Update measurement overlay when measurements or viewport changes
+ */
+$effect(() => {
+	if (!renderer) return;
+
+	// Access reactive dependencies
+	const m = measurements;
+	const am = activeMeasurement;
+	const mv = measurementsVisible;
+	const hm = highlightedMeasurementId;
+	const cwp = cursorWorldPos;
+	const vv = viewportVersion; // Trigger update on viewport changes
+
+	// Update measurement overlay
+	renderer.updateMeasurementOverlay(m, am, cwp, mv, hm);
 });
 
 /**
@@ -929,6 +1137,7 @@ function toggleMinimap() {
 		onToggleCommentsVisibility={() => commentStore.toggleAllCommentsVisibility()}
 		onToggleCommentPanel={() => { commentPanelVisible = !commentPanelVisible; }}
 		onToggleEditorMode={onToggleEditorMode}
+		onToggleMeasurementMode={() => measurementStore.toggleMeasurementMode()}
 		performanceVisible={panelsVisible}
 		minimapVisible={minimapVisible}
 		layersVisible={layerPanelVisible}
@@ -937,6 +1146,7 @@ function toggleMinimap() {
 		commentsVisible={allCommentsVisible}
 		{commentPanelVisible}
 		{editorModeActive}
+		{measurementModeActive}
 	/>
 
 	<!-- Comment input modal -->
@@ -1005,6 +1215,25 @@ function toggleMinimap() {
 		</div>
 	{/if}
 
+	<!-- Measurement mode toast -->
+	{#if $measurementStore.modeToastMessage}
+		<div class="mode-toast" role="status" aria-live="polite">
+			<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M3 3l18 18"/>
+				<path d="M3 21V3h18"/>
+			</svg>
+			<span>{$measurementStore.modeToastMessage}</span>
+			<button
+				type="button"
+				class="toast-dismiss"
+				onclick={() => measurementStore.hideModeToast()}
+				aria-label="Dismiss"
+			>
+				×
+			</button>
+		</div>
+	{/if}
+
 	<!-- Comment toast -->
 	{#if $commentStore.toastMessage}
 		<div class="comment-toast" role="status" aria-live="polite">
@@ -1016,6 +1245,29 @@ function toggleMinimap() {
 				type="button"
 				class="toast-dismiss"
 				onclick={() => commentStore.hideToast()}
+				aria-label="Dismiss"
+			>
+				×
+			</button>
+		</div>
+	{/if}
+
+	<!-- Measurement toast -->
+	{#if $measurementStore.toastMessage}
+		<div class="measurement-toast" role="status" aria-live="polite">
+			<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M3 3l18 18"/>
+				<path d="M3 21V3h18"/>
+				<path d="M7 7v14"/>
+				<path d="M11 11v10"/>
+				<path d="M15 15v6"/>
+				<path d="M19 19v2"/>
+			</svg>
+			<span>{$measurementStore.toastMessage}</span>
+			<button
+				type="button"
+				class="toast-dismiss"
+				onclick={() => measurementStore.hideToast()}
 				aria-label="Dismiss"
 			>
 				×
@@ -1145,6 +1397,28 @@ function toggleMinimap() {
 		opacity: 1;
 	}
 
+	/* Measurement mode toast */
+	.mode-toast {
+		position: absolute;
+		top: 16px;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+		background: rgba(0, 188, 212, 0.9);
+		color: white;
+		border-radius: 6px;
+		font-family: system-ui, -apple-system, sans-serif;
+		font-size: 13px;
+		font-weight: 500;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		z-index: 1001;
+		/* NO ANIMATIONS */
+		transition: none;
+	}
+
 	/* Comment toast */
 	.comment-toast {
 		position: absolute;
@@ -1156,6 +1430,28 @@ function toggleMinimap() {
 		gap: 8px;
 		padding: 8px 12px;
 		background: rgba(255, 152, 0, 0.9);
+		color: white;
+		border-radius: 6px;
+		font-family: system-ui, -apple-system, sans-serif;
+		font-size: 13px;
+		font-weight: 500;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		z-index: 1000;
+		/* NO ANIMATIONS */
+		transition: none;
+	}
+
+	/* Measurement toast */
+	.measurement-toast {
+		position: absolute;
+		top: 104px;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+		background: rgba(0, 188, 212, 0.9);
 		color: white;
 		border-radius: 6px;
 		font-family: system-ui, -apple-system, sans-serif;
