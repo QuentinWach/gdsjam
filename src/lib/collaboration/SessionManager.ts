@@ -28,8 +28,14 @@ import { YjsProvider } from "./YjsProvider";
 // localStorage keys (documented in DevLog-001-10)
 // Format: gdsjam_user_id = persistent user UUID
 const USER_ID_KEY = "gdsjam_user_id";
+
+// Auto-promotion timing constants
+const AUTO_PROMOTE_DELAY_MS = 100; // Delay to allow Y.js state to settle
+const HOST_CHECK_INTERVAL_MS = 2000; // Periodic check for host existence
+
 // Format: gdsjam_session_{sessionId} = {fileId, fileName, fileHash, fileSize}
 const SESSION_STORAGE_PREFIX = "gdsjam_session_";
+const SESSION_STORAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // Stored session info for recovery after refresh
 interface StoredSessionInfo {
@@ -623,9 +629,8 @@ export class SessionManager {
 
 			const info = JSON.parse(stored) as StoredSessionInfo;
 
-			// Check if session info is too old (24 hours)
-			const maxAge = 24 * 60 * 60 * 1000;
-			if (Date.now() - info.savedAt > maxAge) {
+			// Check if session info is too old
+			if (Date.now() - info.savedAt > SESSION_STORAGE_MAX_AGE_MS) {
 				localStorage.removeItem(key);
 				return null;
 			}
@@ -771,14 +776,14 @@ export class SessionManager {
 			// Small delay to allow Y.js state to settle
 			setTimeout(() => {
 				this.tryAutoPromote();
-			}, 100);
+			}, AUTO_PROMOTE_DELAY_MS);
 		});
 
 		// Periodic check: THERE SHOULD ALWAYS BE A HOST
 		// This catches edge cases where Y.js events are missed
 		this.hostCheckInterval = setInterval(() => {
 			this.ensureHostExists();
-		}, 2000); // Check every 2 seconds
+		}, HOST_CHECK_INTERVAL_MS);
 	}
 
 	/**

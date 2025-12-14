@@ -21,8 +21,13 @@ export class PythonExecutor {
 	private token: string;
 
 	constructor() {
-		this.baseUrl = import.meta.env.VITE_FILE_SERVER_URL || "https://signaling.gdsjam.com";
+		this.baseUrl = import.meta.env.VITE_FILE_SERVER_URL || "";
 		this.token = import.meta.env.VITE_FILE_SERVER_TOKEN || "";
+
+		// Validate that required environment variables are set
+		if (!this.baseUrl) {
+			console.error("VITE_FILE_SERVER_URL is not configured. Python code execution will not work.");
+		}
 	}
 
 	/**
@@ -31,6 +36,18 @@ export class PythonExecutor {
 	 * @returns Execution result with fileId if GDS was generated
 	 */
 	async execute(code: string): Promise<ExecutionResult> {
+		// Check if server URL is configured
+		if (!this.baseUrl) {
+			return {
+				success: false,
+				error:
+					"Python execution server is not configured. Please set VITE_FILE_SERVER_URL environment variable.",
+				stdout: "",
+				stderr: "",
+				executionTime: 0,
+			};
+		}
+
 		try {
 			const response = await fetch(`${this.baseUrl}/api/execute`, {
 				method: "POST",

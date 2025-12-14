@@ -23,9 +23,30 @@ const { stdout = "", stderr = "", executionTime = 0, error = null }: Props = $pr
 
 let consoleContainer: HTMLDivElement;
 
+// Limit output to prevent browser freeze (max 10,000 lines)
+const MAX_OUTPUT_LINES = 10000;
+
+function limitOutputLines(text: string): string {
+	if (!text) return text;
+
+	const lines = text.split("\n");
+	if (lines.length <= MAX_OUTPUT_LINES) {
+		return text;
+	}
+
+	// Keep last MAX_OUTPUT_LINES and add truncation notice
+	const truncatedLines = lines.slice(-MAX_OUTPUT_LINES);
+	const removedCount = lines.length - MAX_OUTPUT_LINES;
+	return `[... ${removedCount} lines truncated ...]\n${truncatedLines.join("\n")}`;
+}
+
+// Limit stdout and stderr to prevent browser freeze
+const limitedStdout = $derived(limitOutputLines(stdout));
+const limitedStderr = $derived(limitOutputLines(stderr));
+
 // Auto-scroll to bottom when output changes
 $effect(() => {
-	if (consoleContainer && (stdout || stderr || error)) {
+	if (consoleContainer && (limitedStdout || limitedStderr || error)) {
 		consoleContainer.scrollTop = consoleContainer.scrollHeight;
 	}
 });
@@ -55,19 +76,19 @@ const formattedTime = $derived(
 			</div>
 		{/if}
 
-		{#if stdout}
+		{#if limitedStdout}
 			<div class="stdout">
-				<pre>{stdout}</pre>
+				<pre>{limitedStdout}</pre>
 			</div>
 		{/if}
 
-		{#if stderr}
+		{#if limitedStderr}
 			<div class="stderr">
-				<pre>{stderr}</pre>
+				<pre>{limitedStderr}</pre>
 			</div>
 		{/if}
 
-		{#if !stdout && !stderr && !error}
+		{#if !limitedStdout && !limitedStderr && !error}
 			<div class="empty-message">No output yet. Run your code to see results.</div>
 		{/if}
 

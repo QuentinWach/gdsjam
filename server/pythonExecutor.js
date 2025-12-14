@@ -244,12 +244,73 @@ function cleanupTempDir(tempDir) {
 }
 
 /**
+ * Clean up orphaned temp directories on startup
+ * Removes directories older than 24 hours
+ */
+function cleanupOrphanedTempDirs() {
+	const tempBase = os.tmpdir();
+	const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+	const now = Date.now();
+
+	try {
+		const entries = fs.readdirSync(tempBase);
+		let cleanedCount = 0;
+
+		for (const entry of entries) {
+			// Only process our temp directories
+			if (!entry.startsWith("gdsjam-")) continue;
+
+			const dirPath = path.join(tempBase, entry);
+
+			try {
+				const stats = fs.statSync(dirPath);
+
+				// Check if directory is older than 24 hours
+				if (stats.isDirectory() && now - stats.mtimeMs > maxAge) {
+					fs.rmSync(dirPath, { recursive: true, force: true });
+					cleanedCount++;
+				}
+			} catch (_err) {}
+		}
+
+		if (cleanedCount > 0) {
+			console.log(
+				`[${new Date().toISOString()}] Cleaned up ${cleanedCount} orphaned temp directories`,
+			);
+		}
+	} catch (error) {
+		console.error(
+			`[${new Date().toISOString()}] Failed to cleanup orphaned temp dirs: ${error.message}`,
+		);
+	}
+}
+
+/**
  * Find GDS files in a directory
  */
 function findGdsFiles(directory) {
 	try {
 		const files = fs.readdirSync(directory);
-		return files.filter((f) => f.endsWith(".gds")).map((f) => path.join(directory, f));
+		const gdsFiles = [];
+
+		for (const f of files) {
+			if (!f.endsWith(".gds")) continue;
+
+			const filePath = path.join(directory, f);
+
+			// Security: Validate file is within temp directory (prevent symlink traversal)
+			try {
+				const realPath = fs.realpathSync(filePath);
+				const realDir = fs.realpathSync(directory);
+
+				// Ensure the real path is within the temp directory
+				if (realPath.startsWith(realDir + path.sep) || realPath === realDir) {
+					gdsFiles.push(filePath);
+				}
+			} catch (_err) {}
+		}
+
+		return gdsFiles;
 	} catch (_error) {
 		return [];
 	}
@@ -534,6 +595,9 @@ function authenticateRequest(req, res, next) {
  * Setup Python execution routes
  */
 function setupPythonRoutes(app) {
+	// Clean up orphaned temp directories on startup
+	cleanupOrphanedTempDirs();
+
 	/**
 	 * POST /api/execute
 	 * Execute Python/gdsfactory code and return generated GDS file

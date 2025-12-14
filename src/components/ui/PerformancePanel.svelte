@@ -177,7 +177,8 @@ let metrics = $state({
 	},
 });
 
-// Update metrics periodically (every 500ms) instead of reactively
+// Update metrics periodically instead of reactively
+const METRICS_UPDATE_INTERVAL_MS = 500;
 let updateInterval: number | null = null;
 
 onMount(() => {
@@ -188,7 +189,7 @@ onMount(() => {
 		if (renderer && visible) {
 			metrics = renderer.getPerformanceMetrics();
 		}
-	}, 500);
+	}, METRICS_UPDATE_INTERVAL_MS);
 });
 
 onDestroy(() => {
