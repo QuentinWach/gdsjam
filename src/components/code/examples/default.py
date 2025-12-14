@@ -1,4 +1,19 @@
+"""
+Photonic Integrated Circuit (PIC) Example - Tunable Optical Processor
 
+This design demonstrates a complex photonic chip with:
+- 3 spiral delay lines with Mach-Zehnder Interferometers (MZIs) and integrated heaters
+- 4 additional tunable MZIs for signal processing
+- 4×2 MMI (multimode interferometer) for optical combining
+- 8 grating couplers for fiber-to-chip coupling
+- 22 bond pads for electrical control of phase shifters
+- Complete electrical routing with metal traces
+
+The chip showcases typical photonics design patterns: optical routing with Euler bends,
+fan-in/fan-out structures, electrical-optical integration, and I/O interfacing.
+
+Modify the PARAMETERS section below to customize the design.
+"""
 
 import gdsfactory as gf
 import inspect
@@ -7,6 +22,64 @@ from gdsfactory.component import Component
 from gdsfactory.add_pins import add_pins_container
 
 
+# ============================================================================
+# PARAMETERS - Modify these values to customize the design
+# ============================================================================
+
+# --- Circuit Design Parameters ---
+N_LOOPS_LIST = [11, 10, 9]  # Number of spiral loops for each of the 3 main circuits
+MZI_LENGTH_X = 150.0  # Length of MZI arms in x direction (μm)
+MZI_DEFAULT_LENGTH = 200.0  # Default length for MZI templates (μm)
+HEATER_LENGTH = 100.0  # Length of vertical heater sections (μm)
+SPIRAL_SPACING = 3.0  # Spacing between spiral turns (μm)
+
+# --- Layout Parameters ---
+WG_POSITIONS = [0, 300, 600]  # X positions for alignment waveguides (μm)
+WG_LENGTH = 1.0  # Length of alignment waveguides (μm)
+STACKED_MZI_COUNT = 4  # Number of stacked MZIs
+STACKED_MZI_X_START = -280  # Starting x position for stacked MZIs (μm)
+STACKED_MZI_Y_START = 280  # Starting y position for stacked MZIs (μm)
+STACKED_MZI_X_SPACING_EXTRA = 10  # Extra spacing between stacked MZIs along x (μm)
+SPIRAL_ROTATION = 180  # Rotation angle for spirals (degrees)
+SPIRAL_Y_OFFSET = -60  # Y offset for spiral positioning (μm)
+
+# --- Routing Parameters ---
+HEATER_OFFSET_Y = 50  # Vertical offset for heater placement from ports (μm)
+HEATER_OFFSET_X = 50  # Horizontal offset for heater placement from ports (μm)
+FANIN_INPUT_LENGTH = 30  # Length of fan-in input waveguides (μm)
+FANIN_TARGET_X = 710.0  # X position where fan-in starts (μm)
+FANIN_MMI_OFFSET_X = 200  # Offset from fan-in inputs to MMI position (μm)
+FANIN_OUTPUT_SPACING = 1.25  # Output spacing for fan-in (μm, matches MMI port spacing)
+FANOUT_OUTPUT_SPACING = 5.0  # Output spacing for fan-out (μm)
+FANOUT_OUTPUT_LENGTH = 5.0  # Length of fan-out output waveguides (μm)
+FANOUT_LENGTH_X = 10.0  # Length along x for fan-out S-bend transition (μm)
+
+# --- Grating Coupler Parameters ---
+GC_ARRAY_X = 1100  # X position for grating coupler array (μm)
+GC_ARRAY_Y_OFFSET = 127  # Y offset for grating coupler array (μm, one pitch)
+GC_COUNT = 8  # Number of grating couplers
+GC_PITCH = 127  # Pitch between grating couplers (μm, standard)
+GC_ROTATION = -90  # Default rotation for grating coupler array (degrees)
+
+# --- Bond Pad Parameters ---
+EDGE_BUFFER = 500.0  # Buffer distance from pattern extent to bond pads (μm)
+PAD_PITCH = 100.0  # Pitch between bond pads (μm)
+PAD_SIZE = 80.0  # Bond pad size (μm × μm)
+PAD_PORT_WIDTH = 40.0  # Width of bond pad electrical ports (μm)
+LEFT_PAD_START_Y = -200.0  # Starting Y position for left edge pads (μm)
+BOTTOM_PAD_START_X = 0.0  # Starting X position for bottom edge pads (μm)
+
+# --- Electrical Routing Parameters ---
+METAL_WIDTH = 15.0  # Width of metal traces (μm)
+METAL_LAYER = (49, 0)  # Metal layer for routing (M3)
+CHANNEL_SPACING_GAP = 5.0  # Gap between parallel metal traces (μm)
+INTERMEDIATE_OFFSET_LEFT = 200.0  # Offset from left bond pads for routing (μm)
+INTERMEDIATE_OFFSET_BOTTOM = 200.0  # Offset from bottom bond pads for routing (μm)
+
+# ============================================================================
+# COMPONENT TEMPLATES
+# ============================================================================
+
 # Create custom MZI 1x2_2x2 with phase shifter (heater in top arm)
 mzi1x2_2x2_phase_shifter = partial(
     gf.components.mzi,
@@ -14,7 +87,7 @@ mzi1x2_2x2_phase_shifter = partial(
     port_e1_combiner='o3',
     port_e0_combiner='o4',
     straight_x_top='straight_heater_metal',
-    length_x=200  # default length
+    length_x=MZI_DEFAULT_LENGTH
 )
 
 # Create custom MZI 1x2_1x2 with phase shifter (heater in top arm)
@@ -24,7 +97,7 @@ mzi1x2_1x2_phase_shifter = partial(
     splitter='mmi1x2',
     combiner='mmi1x2',
     straight_x_top='straight_heater_metal',
-    length_x=200  # default length
+    length_x=MZI_DEFAULT_LENGTH
 )
 
 
@@ -44,13 +117,13 @@ def spiral_mzi_circuit(n_loops: int = 6, mzi_length_x: float = 150.0) -> Compone
     c = gf.Component()
 
     # Create sub-components
-    c_strip = gf.components.straight(length=1, cross_section='strip')
+    c_strip = gf.components.straight(length=WG_LENGTH, cross_section='strip')
     c_spiral = gf.components.spiral(
         length=0,
         bend='bend_euler',
         straight='straight',
         cross_section='strip',
-        spacing=3,
+        spacing=SPIRAL_SPACING,
         n_loops=n_loops
     )
     c_mzi = mzi1x2_2x2_phase_shifter(
@@ -63,7 +136,7 @@ def spiral_mzi_circuit(n_loops: int = 6, mzi_length_x: float = 150.0) -> Compone
     # Add references
     ref_WG = c << c_strip
     ref_spiral = c << c_spiral
-    ref_spiral.rotate(180).movey(-60)
+    ref_spiral.rotate(SPIRAL_ROTATION).movey(SPIRAL_Y_OFFSET)
     ref_mzi = c << c_mzi
 
     # Connect components
@@ -91,24 +164,24 @@ def spiral_mzi_circuit(n_loops: int = 6, mzi_length_x: float = 150.0) -> Compone
     return c
 
 
+# ============================================================================
+# MAIN CHIP ASSEMBLY
+# ============================================================================
+
 # Create the main chip component
 c_chip = gf.Component("chip")
 
-# Create three short waveguides for alignment at y=0, separated by 500 um along x
-wg_positions = [0, 300, 600]  # x positions in um
+# Create three short waveguides for alignment at y=0
 waveguides = []
-
-for i, x_pos in enumerate(wg_positions):
-    wg = c_chip << gf.components.straight(length=1, cross_section='strip')
+for i, x_pos in enumerate(WG_POSITIONS):
+    wg = c_chip << gf.components.straight(length=WG_LENGTH, cross_section='strip')
     wg.move((x_pos, 0))  # Position at (x_pos, 0)
     waveguides.append(wg)
 
-# Create three spiral-MZI circuits with n_loops = 6, 7, 8
-n_loops_list = [11, 10, 9]
+# Create three spiral-MZI circuits with varying spiral sizes
 circuits = []
-
-for i, n_loops in enumerate(n_loops_list):
-    circuit = c_chip << spiral_mzi_circuit(n_loops=n_loops, mzi_length_x=150.0)
+for i, n_loops in enumerate(N_LOOPS_LIST):
+    circuit = c_chip << spiral_mzi_circuit(n_loops=n_loops, mzi_length_x=MZI_LENGTH_X)
     circuits.append(circuit)
 
     # Connect the MZI output (circuit's o2) to the waveguide's o1
@@ -130,34 +203,30 @@ for i in range(len(circuits) - 1):
 test_mzi = mzi1x2_1x2_phase_shifter(
     cross_section='strip',
     length_y=0.0,
-    length_x=150.0,
+    length_x=MZI_LENGTH_X,
     delta_length=0.0,
 )
 mzi_width = test_mzi.xmax - test_mzi.xmin
 mzi_height = test_mzi.ymax - test_mzi.ymin
 
-# Create four MZIs stacked along x with consistent y offset to prevent overlap
-x_start = -280  # Starting x position
-x_spacing = mzi_width + 10  # Add 10 um spacing between MZIs along x
-y_start = 280  # Starting y position
-y_shift = mzi_height / 2 + 5  # Half height plus 5 um buffer for consistent y shift
-y_shift = -y_shift
+# Create stacked MZIs with consistent y offset to prevent overlap
+x_spacing = mzi_width + STACKED_MZI_X_SPACING_EXTRA
+y_shift = -(mzi_height / 2 + 5)  # Half height plus 5 um buffer, negative for downward shift
 stacked_mzis = []
-for i in range(4):
+for i in range(STACKED_MZI_COUNT):
     mzi = c_chip << mzi1x2_1x2_phase_shifter(
         cross_section='strip',
         length_y=0.0,
-        length_x=150.0,
+        length_x=MZI_LENGTH_X,
         delta_length=0.0,
     )
     # Position the MZI: stack along x, with consistent y offset for each
-    x_pos = x_start + i * x_spacing
-    y_pos = y_start + i * y_shift  # Consistent downward shift
+    x_pos = STACKED_MZI_X_START + i * x_spacing
+    y_pos = STACKED_MZI_Y_START + i * y_shift  # Consistent downward shift
     mzi.move((x_pos, y_pos))
     stacked_mzis.append(mzi)
 
-# Create four vertical heaters with same spacing as the cells
-heater_length = 100  # Length of heated section
+# Create four vertical heaters
 heaters = []
 
 # Get the ports we want to connect to
@@ -171,16 +240,14 @@ ports_to_connect = [
 # Create and position heaters vertically
 for i, port in enumerate(ports_to_connect):
     heater = c_chip << gf.components.straight_heater_metal(
-        length=heater_length,
+        length=HEATER_LENGTH,
         cross_section='strip'
     )
     # Rotate to make it vertical (90 degrees)
     heater.rotate(90)
 
     # Position the heater: place it offset from the port
-    # Move heater so its o1 port is offset vertically from the target port
-    offset_y = 50  # Offset distance in um
-    heater.movex(port.x - 50).movey(port.y + offset_y)
+    heater.movex(port.x - HEATER_OFFSET_X).movey(port.y + HEATER_OFFSET_Y)
 
     heaters.append(heater)
 
@@ -242,22 +309,18 @@ for i, mzi in enumerate(stacked_mzis):
         if port.port_type == 'electrical':
             c_chip.add_port(f"stacked_mzi_{i+1}_{port.name}", port=port)
 
-# Extend stacked MZI o2 ports to x=710 um and add fan-in
-target_x = 710.0
-fanin_input_spacing = 28.5  # Same as the y spacing between stacked MZIs
-fanin_output_spacing = 1.25  # 1.25 um output spacing (matches 4x2 MMI input port spacing)
-
-# First, extend each stacked MZI o2 port to x=710 using straight waveguides
+# Extend stacked MZI o2 ports to target X position and add fan-in
+# First, extend each stacked MZI o2 port using straight waveguides
 extended_ports = []
 for i, mzi in enumerate(stacked_mzis):
     o2_port = mzi.ports['o2']
 
-    # Calculate the length needed to reach x=710
+    # Calculate the length needed to reach target X
     current_x = o2_port.x
-    extension_length = target_x - current_x
+    extension_length = FANIN_TARGET_X - current_x
 
     if extension_length > 0:
-        # Create a straight waveguide to extend to x=710
+        # Create a straight waveguide to extend to target X
         extension_wg = c_chip << gf.components.straight(
             length=extension_length,
             cross_section='strip'
@@ -265,21 +328,21 @@ for i, mzi in enumerate(stacked_mzis):
         extension_wg.connect('o1', o2_port)
         extended_ports.append(extension_wg.ports['o2'])
     else:
-        # Already past x=710, just use the existing port
+        # Already past target X, just use the existing port
         extended_ports.append(o2_port)
 
-# Now create the fan-in starting at x=710
+# Now create the fan-in starting at target X
 # Get the y positions of the extended ports
 y_positions = [port.y for port in extended_ports]
 
 # Calculate the center y position for the fan-in output
 y_center = sum(y_positions) / len(y_positions)
-y_start_output = y_center - (len(extended_ports) - 1) * fanin_output_spacing / 2
+y_start_output = y_center - (len(extended_ports) - 1) * FANIN_OUTPUT_SPACING / 2
 
-# Create input waveguides for the fan-in (short straights at x=710)
+# Create input waveguides for the fan-in
 fanin_input_wgs = []
 for i, port in enumerate(extended_ports):
-    wg = c_chip << gf.components.straight(length=30, cross_section='strip')
+    wg = c_chip << gf.components.straight(length=FANIN_INPUT_LENGTH, cross_section='strip')
     wg.connect('o1', port)
     fanin_input_wgs.append(wg)
 
@@ -287,15 +350,14 @@ for i, port in enumerate(extended_ports):
 mmi4x2 = c_chip << gf.components.mmi(inputs=4, outputs=2)
 
 # Position the MMI after the fan-in input waveguides
-# The fan-in input waveguides end at x=740, so place MMI further out
-mmi4x2.movex(target_x + 30 + 200)  # Position after input wgs + some gap
+mmi4x2.movex(FANIN_TARGET_X + FANIN_INPUT_LENGTH + FANIN_MMI_OFFSET_X)
 
 # Calculate the target y positions for fan-in outputs (FLIPPED order)
 # These will be the positions where the S-bend outputs should end up
 fanin_output_y_positions = []
 for i in range(len(extended_ports)):
     # Reversed order: start from highest y and go down
-    y = y_start_output + (len(extended_ports) - 1 - i) * fanin_output_spacing
+    y = y_start_output + (len(extended_ports) - 1 - i) * FANIN_OUTPUT_SPACING
     fanin_output_y_positions.append(y)
 
 # Center the MMI vertically with the calculated fan-in output positions
@@ -324,27 +386,23 @@ for i, mzi in enumerate(stacked_mzis):
     c_chip.add_port(f"stacked_mzi_{i+1}_o1", port=mzi.ports['o1'])
 
 # Add fan-out after 4x2 MMI to separate the waveguides more
-# Fan-out with 5 um separation and max 20 um length along x
-fanout_output_spacing = 5.0  # 5 um separation
-fanout_length_x = 10.0  # 10 um along x for the S-bend transition
-
 # Get MMI output ports directly
 mmi_output_ports = [mmi4x2.ports['o5'], mmi4x2.ports['o6']]
 
 # Calculate center y position for fan-out outputs
 mmi_output_y_positions = [p.y for p in mmi_output_ports]
 fanout_y_center = sum(mmi_output_y_positions) / len(mmi_output_y_positions)
-fanout_total_output_span = (len(mmi_output_ports) - 1) * fanout_output_spacing
+fanout_total_output_span = (len(mmi_output_ports) - 1) * FANOUT_OUTPUT_SPACING
 fanout_y_start_output = fanout_y_center - fanout_total_output_span / 2
 
-# Create output waveguides for the fan-out (no extra straight)
+# Create output waveguides for the fan-out
 # REVERSED order: start from highest y and go down to match MMI output order
 fanout_output_wgs = []
 for i in range(len(mmi_output_ports)):
-    wg = c_chip << gf.components.straight(length=5, cross_section='strip')
-    wg.movex(mmi4x2.ports['o5'].x + fanout_length_x)  # Position after fan-out transition
+    wg = c_chip << gf.components.straight(length=FANOUT_OUTPUT_LENGTH, cross_section='strip')
+    wg.movex(mmi4x2.ports['o5'].x + FANOUT_LENGTH_X)  # Position after fan-out transition
     # Reversed: highest y first (i=0 gets highest y position)
-    wg.movey(fanout_y_start_output + (len(mmi_output_ports) - 1 - i) * fanout_output_spacing)
+    wg.movey(fanout_y_start_output + (len(mmi_output_ports) - 1 - i) * FANOUT_OUTPUT_SPACING)
     fanout_output_wgs.append(wg)
 
 # Create the fan-out using S-bend routing (max 20 um along x)
@@ -359,25 +417,25 @@ fanout_routes = gf.routing.route_bundle_sbend(
 c_chip.add_port("mmi4x2_output_1", port=fanout_output_wgs[0].ports['o2'])
 c_chip.add_port("mmi4x2_output_2", port=fanout_output_wgs[1].ports['o2'])
 
-# Add a set of 8 grating couplers at x=1100 um along y direction
+# Add grating coupler array for fiber-to-chip coupling
 # Waveguide output should be facing -x (180 degrees)
 gc_array = c_chip << gf.components.grating_coupler_array(
-    n=8,
-    pitch=127,  # Standard pitch of 127 um
-    rotation=-90  # Default rotation
+    n=GC_COUNT,
+    pitch=GC_PITCH,
+    rotation=GC_ROTATION
 )
 
-# Position the grating coupler array at x=1100
+# Position the grating coupler array
 # The array is created centered at origin with ports at 90 degrees (facing +y)
 # We need to rotate it so ports face -x (180 degrees)
 # Rotation from 90° to 180° requires +90° rotation
 gc_array.rotate(90)
-gc_array.movex(1100)
-# Move the grating array along +y by one pitch (127 um)
-gc_array.movey(127)
+gc_array.movex(GC_ARRAY_X)
+# Move the grating array along +y by one pitch
+gc_array.movey(GC_ARRAY_Y_OFFSET)
 
 # Export grating coupler ports
-for i in range(8):
+for i in range(GC_COUNT):
     c_chip.add_port(f"gc_{i}", port=gc_array.ports[f'o{i}'])
 
 # Route fan-out outputs to grating couplers
@@ -442,14 +500,11 @@ print(f"\n=== Chip Extent (before bond pads) ===")
 print(f"X: [{chip_xmin:.1f}, {chip_xmax:.1f}] um")
 print(f"Y: [{chip_ymin:.1f}, {chip_ymax:.1f}] um")
 
-# Bond pad parameters with 500 um buffer from pattern extent
-edge_buffer = 500.0  # 500 um buffer from pattern extent
-left_edge_x = chip_xmin - edge_buffer  # Left edge x-coordinate for bond pads
-bottom_edge_y = chip_ymin - edge_buffer  # Bottom edge y-coordinate for bond pads
-pad_pitch = 100.0  # 100 um pitch between bond pads
-pad_size = 80.0  # 80 um x 80 um bond pads
+# Calculate bond pad edge positions
+left_edge_x = chip_xmin - EDGE_BUFFER  # Left edge x-coordinate for bond pads
+bottom_edge_y = chip_ymin - EDGE_BUFFER  # Bottom edge y-coordinate for bond pads
 
-print(f"\n=== Bond Pad Edge Positions (with {edge_buffer} um buffer) ===")
+print(f"\n=== Bond Pad Edge Positions (with {EDGE_BUFFER} um buffer) ===")
 print(f"LEFT edge x: {left_edge_x:.1f} um")
 print(f"BOTTOM edge y: {bottom_edge_y:.1f} um")
 
@@ -520,56 +575,46 @@ print(f"LEFT edge bond pads: {len(left_pads)}")
 print(f"BOTTOM edge bond pads: {len(bottom_pads)}")
 
 # Create bond pads along LEFT edge
-# Move down by 200 um to be closer to bottom-left corner
-left_start_y = -200.0  # Starting y position for left edge pads
-
 for i, pad_info in enumerate(left_pads):
     # Create a rectangular bond pad
-    pad = c_chip << gf.components.rectangle(size=(pad_size, pad_size), layer='M3')
-    pad_y = left_start_y + i * pad_pitch
+    pad = c_chip << gf.components.rectangle(size=(PAD_SIZE, PAD_SIZE), layer='M3')
+    pad_y = LEFT_PAD_START_Y + i * PAD_PITCH
     pad.move((left_edge_x, pad_y))
 
     # Add port to the bond pad for routing
     c_chip.add_port(f"bondpad_{pad_info['name']}",
-                    center=(left_edge_x + pad_size/2, pad_y + pad_size/2),
-                    width=40.0, orientation=0, layer='M3', port_type='electrical')
+                    center=(left_edge_x + PAD_SIZE/2, pad_y + PAD_SIZE/2),
+                    width=PAD_PORT_WIDTH, orientation=0, layer='M3', port_type='electrical')
 
     # Store mapping for later routing
     pad_info['bondpad_name'] = f"bondpad_{pad_info['name']}"
 
 print(f"Created {len(left_pads)} bond pads on LEFT edge")
-print(f"  Y range: [{left_start_y:.1f}, {left_start_y + (len(left_pads)-1)*pad_pitch:.1f}]")
+print(f"  Y range: [{LEFT_PAD_START_Y:.1f}, {LEFT_PAD_START_Y + (len(left_pads)-1)*PAD_PITCH:.1f}]")
 
 # Create bond pads along BOTTOM edge
-# Move left by 200 um to be closer to bottom-left corner
-bottom_start_x = 0.0  # Starting x position for bottom edge pads
-
 for i, pad_info in enumerate(bottom_pads):
     # Create a rectangular bond pad
-    pad = c_chip << gf.components.rectangle(size=(pad_size, pad_size), layer='M3')
-    pad_x = bottom_start_x + i * pad_pitch
+    pad = c_chip << gf.components.rectangle(size=(PAD_SIZE, PAD_SIZE), layer='M3')
+    pad_x = BOTTOM_PAD_START_X + i * PAD_PITCH
     pad.move((pad_x, bottom_edge_y))
 
     # Add port to the bond pad for routing
     c_chip.add_port(f"bondpad_{pad_info['name']}",
-                    center=(pad_x + pad_size/2, bottom_edge_y + pad_size/2),
-                    width=40.0, orientation=90, layer='M3', port_type='electrical')
+                    center=(pad_x + PAD_SIZE/2, bottom_edge_y + PAD_SIZE/2),
+                    width=PAD_PORT_WIDTH, orientation=90, layer='M3', port_type='electrical')
 
     # Store mapping for later routing
     pad_info['bondpad_name'] = f"bondpad_{pad_info['name']}"
 
 print(f"Created {len(bottom_pads)} bond pads on BOTTOM edge")
-print(f"  X range: [{bottom_start_x:.1f}, {bottom_start_x + (len(bottom_pads)-1)*pad_pitch:.1f}]")
+print(f"  X range: [{BOTTOM_PAD_START_X:.1f}, {BOTTOM_PAD_START_X + (len(bottom_pads)-1)*PAD_PITCH:.1f}]")
 
 # ============================================================================
 # ELECTRICAL ROUTING: Connect heater ports to bond pads
 # ============================================================================
 
 print(f"\n=== Electrical Routing ===")
-
-# Routing parameters
-metal_width = 15.0  # 15 um wide metal traces
-metal_layer = (49, 0)  # M3 layer
 
 # Route LEFT edge pads
 # Strategy: Maintain Y-order to avoid crossings and overlaps
@@ -580,7 +625,7 @@ print(f"Routing {len(left_pads)} groups to LEFT edge...")
 
 # Define intermediate X position for LEFT edge routing (between ports and pads)
 # This should be to the left of all heater ports
-intermediate_x_left = left_edge_x + 200.0  # 200 um to the right of bond pads
+intermediate_x_left = left_edge_x + INTERMEDIATE_OFFSET_LEFT
 
 # First pass: calculate all merge points and assign unique Y channels
 left_routing_info = []
@@ -607,7 +652,7 @@ for i, pad_info in enumerate(left_pads):
 left_routing_info.sort(key=lambda x: x['sort_key'])
 
 # Assign unique Y positions at intermediate_x (spaced by metal_width + gap)
-channel_spacing = metal_width + 5.0  # 5 um gap between traces
+channel_spacing = METAL_WIDTH + CHANNEL_SPACING_GAP
 for idx, info in enumerate(left_routing_info):
     # Assign Y position at intermediate X, evenly spaced
     info['intermediate_y'] = info['merge_y'] + idx * channel_spacing - (len(left_routing_info) - 1) * channel_spacing / 2
@@ -628,7 +673,7 @@ for info in left_routing_info:
             (merge_point_x, merge_point_y)
         ]
         path = gf.Path(points)
-        trace = c_chip << path.extrude(width=metal_width, layer=metal_layer)
+        trace = c_chip << path.extrude(width=METAL_WIDTH, layer=METAL_LAYER)
 
     # Step 2: Route from merge point to bond pad with Manhattan routing
     # Path: merge -> (merge_x, intermediate_y) -> (intermediate_x, intermediate_y) -> (intermediate_x, channel_y) -> bond pad
@@ -641,7 +686,7 @@ for info in left_routing_info:
     ]
 
     path = gf.Path(route_points)
-    trace = c_chip << path.extrude(width=metal_width, layer=metal_layer)
+    trace = c_chip << path.extrude(width=METAL_WIDTH, layer=METAL_LAYER)
 
 print(f"  ✓ Routed {len(left_pads)} groups to LEFT edge")
 
@@ -654,7 +699,7 @@ print(f"Routing {len(bottom_pads)} groups to BOTTOM edge...")
 
 # Define intermediate Y position for BOTTOM edge routing (between ports and pads)
 # This should be below all heater ports
-intermediate_y_bottom = bottom_edge_y + 200.0  # 200 um above bond pads
+intermediate_y_bottom = bottom_edge_y + INTERMEDIATE_OFFSET_BOTTOM
 
 # First pass: calculate all merge points and assign unique X channels
 bottom_routing_info = []
@@ -681,7 +726,7 @@ for i, pad_info in enumerate(bottom_pads):
 bottom_routing_info.sort(key=lambda x: x['sort_key'])
 
 # Assign unique X positions at intermediate_y (spaced by metal_width + gap)
-channel_spacing = metal_width + 5.0  # 5 um gap between traces
+channel_spacing = METAL_WIDTH + CHANNEL_SPACING_GAP
 for idx, info in enumerate(bottom_routing_info):
     # Assign X position at intermediate Y, evenly spaced
     info['intermediate_x'] = info['merge_x'] + idx * channel_spacing - (len(bottom_routing_info) - 1) * channel_spacing / 2
@@ -702,7 +747,7 @@ for info in bottom_routing_info:
             (merge_point_x, merge_point_y)
         ]
         path = gf.Path(points)
-        trace = c_chip << path.extrude(width=metal_width, layer=metal_layer)
+        trace = c_chip << path.extrude(width=METAL_WIDTH, layer=METAL_LAYER)
 
     # Step 2: Route from merge point to bond pad with Manhattan routing
     # Path: merge -> (intermediate_x, merge_y) -> (intermediate_x, intermediate_y) -> (channel_x, intermediate_y) -> bond pad
@@ -715,13 +760,13 @@ for info in bottom_routing_info:
     ]
 
     path = gf.Path(route_points)
-    trace = c_chip << path.extrude(width=metal_width, layer=metal_layer)
+    trace = c_chip << path.extrude(width=METAL_WIDTH, layer=METAL_LAYER)
 
 print(f"  ✓ Routed {len(bottom_pads)} groups to BOTTOM edge")
 print(f"\n✓ Electrical routing complete!")
 print(f"  Total traces: {len(left_pads) + len(bottom_pads)}")
-print(f"  Metal width: {metal_width} μm")
-print(f"  Metal layer: M3 ({metal_layer[0]}/{metal_layer[1]})")
+print(f"  Metal width: {METAL_WIDTH} μm")
+print(f"  Metal layer: M3 ({METAL_LAYER[0]}/{METAL_LAYER[1]})")
 
 # Print port information
 print("\n=== Chip Ports ===")
