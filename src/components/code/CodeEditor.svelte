@@ -10,8 +10,8 @@
  * - Dark theme matching app design
  */
 
-import { onDestroy, onMount } from "svelte";
 import type * as Monaco from "monaco-editor";
+import { onDestroy, onMount } from "svelte";
 import { editorStore } from "../../stores/editorStore";
 
 interface Props {

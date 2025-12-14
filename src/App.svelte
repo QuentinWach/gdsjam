@@ -8,7 +8,7 @@ import HelpModal from "./components/ui/HelpModal.svelte";
 import LoadingOverlay from "./components/ui/LoadingOverlay.svelte";
 import ParticipantList from "./components/ui/ParticipantList.svelte";
 import ViewerCanvas from "./components/viewer/ViewerCanvas.svelte";
-import { pythonExecutor, type ExecutionResult } from "./lib/api/pythonExecutor";
+import { type ExecutionResult, pythonExecutor } from "./lib/api/pythonExecutor";
 import { getDefaultCode } from "./lib/code/defaultExample";
 import { EmbedAPI } from "./lib/embed/EmbedAPI";
 import { KeyboardShortcutManager } from "./lib/keyboard/KeyboardShortcutManager";

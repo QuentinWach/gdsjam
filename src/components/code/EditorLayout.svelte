@@ -14,8 +14,8 @@
 
 import { onMount } from "svelte";
 import { editorStore } from "../../stores/editorStore";
-import CodeEditor from "./CodeEditor.svelte";
 import CodeConsole from "./CodeConsole.svelte";
+import CodeEditor from "./CodeEditor.svelte";
 
 interface Props {
 	onExecute: () => void;
