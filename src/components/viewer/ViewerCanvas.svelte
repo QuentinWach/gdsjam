@@ -30,13 +30,14 @@ import MobileControls from "../ui/MobileControls.svelte";
 // biome-ignore lint/correctness/noUnusedImports: Used in Svelte template
 import PerformancePanel from "../ui/PerformancePanel.svelte";
 
-// Props for fullscreen mode
+// Props for fullscreen mode and editor mode
 interface Props {
 	fullscreenMode?: boolean;
 	onToggleFullscreen?: (enabled: boolean) => void;
+	onToggleEditorMode?: () => void;
 }
 
-const { fullscreenMode = false, onToggleFullscreen }: Props = $props();
+const { fullscreenMode = false, onToggleFullscreen, onToggleEditorMode }: Props = $props();
 
 // Mobile breakpoint (matches CSS media query)
 const MOBILE_BREAKPOINT = 1024; // pixels
@@ -66,6 +67,11 @@ let cKeyDownTime: number | null = null;
 let cKeyHoldTimer: ReturnType<typeof setTimeout> | null = null;
 let cKeyTriggeredHold = false;
 let lastCKeyPressTime: number | null = null;
+
+// E key hold detection for editor mode
+const EDITOR_HOLD_DURATION_MS = 500;
+let eKeyDownTime: number | null = null;
+let eKeyHoldTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Comment mode state
 let commentModeActive = $state(false);
@@ -332,6 +338,50 @@ function handleCKeyUp(event: KeyboardEvent): void {
 }
 
 /**
+ * Handle E key down - start hold detection timer for editor mode
+ * Hold (>=500ms) = toggle editor mode
+ */
+function handleEKeyDown(event: KeyboardEvent): void {
+	// Only handle E key
+	if (event.code !== "KeyE") return;
+
+	// Don't handle in input fields
+	const target = event.target as HTMLElement;
+	if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+		return;
+	}
+
+	// Already holding - ignore
+	if (eKeyDownTime !== null) return;
+
+	// Record key down time
+	eKeyDownTime = Date.now();
+
+	// Start hold detection timer
+	eKeyHoldTimer = setTimeout(() => {
+		// Hold threshold reached - toggle editor mode
+		onToggleEditorMode?.();
+	}, EDITOR_HOLD_DURATION_MS);
+}
+
+/**
+ * Handle E key up - clear hold timer
+ */
+function handleEKeyUp(event: KeyboardEvent): void {
+	// Only handle E key
+	if (event.code !== "KeyE") return;
+
+	// Clear the hold timer
+	if (eKeyHoldTimer) {
+		clearTimeout(eKeyHoldTimer);
+		eKeyHoldTimer = null;
+	}
+
+	// Reset state
+	eKeyDownTime = null;
+}
+
+/**
  * Handle canvas click/tap for comment placement
  * Unified handler for both mouse and touch (via pointer events or click)
  */
@@ -558,6 +608,10 @@ onMount(() => {
 	window.addEventListener("keydown", handleCKeyDown);
 	window.addEventListener("keyup", handleCKeyUp);
 
+	// Register E key handlers for editor mode
+	window.addEventListener("keydown", handleEKeyDown);
+	window.addEventListener("keyup", handleEKeyUp);
+
 	// Register ESC key handler for cancelling comment mode
 	window.addEventListener("keydown", handleEscKey);
 
@@ -627,6 +681,10 @@ onMount(() => {
 		window.removeEventListener("keydown", handleCKeyDown);
 		window.removeEventListener("keyup", handleCKeyUp);
 
+		// Remove E key handlers
+		window.removeEventListener("keydown", handleEKeyDown);
+		window.removeEventListener("keyup", handleEKeyUp);
+
 		// Remove ESC key handler
 		window.removeEventListener("keydown", handleEscKey);
 
@@ -641,6 +699,10 @@ onMount(() => {
 		if (cKeyHoldTimer) {
 			clearTimeout(cKeyHoldTimer);
 			cKeyHoldTimer = null;
+		}
+		if (eKeyHoldTimer) {
+			clearTimeout(eKeyHoldTimer);
+			eKeyHoldTimer = null;
 		}
 	};
 });

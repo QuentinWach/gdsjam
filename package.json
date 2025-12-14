@@ -48,6 +48,7 @@
 		"@tauri-apps/plugin-fs": "^2.4.4",
 		"dxf-parser": "^1.1.2",
 		"gdsii": "^0.1.0",
+		"monaco-editor": "^0.55.1",
 		"pako": "^2.1.0",
 		"pixi.js": "^8.14.1",
 		"pnpm": "^10.25.0",

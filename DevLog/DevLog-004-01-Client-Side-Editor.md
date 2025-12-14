@@ -1,13 +1,15 @@
 # DevLog-004-01: Client-Side Python Code Editor Implementation
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** 2025-12-14
-**Status:** Planning - Ready for Implementation
+**Status:** COMPLETE - MVP Implemented
 **Related:** DevLog-004-00-Python-Code-Editor.md
 
 ## Overview
 
 This DevLog documents the client-side implementation of the Python code editor feature (Phase 2 of DevLog-004-00). The editor provides an integrated development environment for writing and executing gdsfactory Python code within the gdsjam viewer.
+
+**Implementation Status:** All 5 phases complete. Editor is functional with Monaco Editor integration, proper web worker setup, tab-based layout, and full execution flow.
 
 ## Design Decisions
 
@@ -625,6 +627,104 @@ src/
 - monaco-editor: ^0.45.0 (or latest stable)
 - @types/monaco-editor: ^0.45.0 (dev dependency)
 
+## Implementation Summary
+
+### Phase 1: Core Infrastructure (COMPLETE)
+- **editorStore.ts**: State management with localStorage persistence, session-aware storage keys
+- **pythonExecutor.ts**: API client with rate limiting, error handling, file download
+- **defaultExample.ts**: 741-line photonics circuit example loader
+
+### Phase 2: Editor UI Components (COMPLETE)
+- **CodeEditor.svelte**: Monaco Editor wrapper with proper web worker configuration
+- **CodeConsole.svelte**: Console output display with stdout/stderr separation
+- **EditorLayout.svelte**: Responsive layout (desktop split-panel, mobile three-tab)
+
+### Phase 3: App Integration (COMPLETE)
+- **App.svelte**: E key hold detection, editor mode toggle, ViewerCanvas preservation
+- **ViewerCanvas.svelte**: E key handler integration
+
+### Phase 4: Execution Flow (COMPLETE)
+- Code execution with Ctrl/Cmd+Enter
+- Console output display
+- GDS file auto-upload to session (<=10MB threshold)
+- Rate limiting with countdown timer
+
+### Phase 5: Bug Fixes (COMPLETE)
+- **ViewerCanvas Preservation**: Fixed destruction on editor mode toggle using DOM manipulation
+- **Tab Switching**: Fixed viewer disappearing by keeping all panels in DOM with CSS visibility toggle
+- **Monaco Workers**: Configured proper web workers using `new URL(..., import.meta.url)` pattern
+- **Keyboard Shortcuts**: Fixed event propagation to prevent app shortcuts from firing in editor
+
+## Critical Bug Fixes
+
+### Bug 1: ViewerCanvas Destroyed on Editor Mode Entry
+**Problem:** Conditional rendering destroyed ViewerCanvas when entering editor mode, causing PixiRenderer errors.
+
+**Solution:**
+- Keep ViewerCanvas always rendered in App.svelte
+- Use JavaScript DOM manipulation in EditorLayout.onMount() to move ViewerCanvas element into editor container
+- Restore ViewerCanvas to original parent on EditorLayout cleanup
+- Added reactive positioning for mobile/desktop switching
+
+**Files Modified:**
+- `src/App.svelte`: Removed conditional rendering of ViewerCanvas
+- `src/components/code/EditorLayout.svelte`: Added DOM manipulation logic
+
+### Bug 2: Viewer Tab Not Working After Switching
+**Problem:** Tab container was destroyed/recreated by `{#if}` blocks, losing ViewerCanvas reference.
+
+**Solution:**
+- Keep all panels (code, viewer, console) in DOM at all times
+- Toggle visibility with CSS `.hidden` class instead of conditional rendering
+- Separate containers for desktop (`#editor-viewer-container`) and mobile (`#editor-viewer-container-mobile`)
+
+**Files Modified:**
+- `src/components/code/EditorLayout.svelte`: Changed from `{#if}` to `class:hidden` pattern
+
+### Bug 3: Monaco Editor Worker Errors
+**Problem:** Monaco tried to use web workers but couldn't load them, causing console errors:
+```
+Failed to load module script: The server responded with a non-JavaScript MIME type
+Cannot read properties of undefined (reading 'postMessage')
+```
+
+**Solution:**
+- Configured proper web workers using Vite's `new URL(..., import.meta.url)` pattern
+- Added `.js` extension to worker paths for proper module resolution
+- Workers now load correctly as ES modules
+
+**Files Modified:**
+- `src/components/code/CodeEditor.svelte`: Proper MonacoEnvironment.getWorker() configuration
+
+**Code:**
+```typescript
+(self as any).MonacoEnvironment = {
+	getWorker(_: any, label: string) {
+		if (label === 'json') {
+			return new Worker(
+				new URL('monaco-editor/esm/vs/language/json/json.worker.js', import.meta.url),
+				{ type: 'module' }
+			);
+		}
+		// ... other language workers
+		return new Worker(
+			new URL('monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url),
+			{ type: 'module' }
+		);
+	}
+};
+```
+
+### Bug 4: Keyboard Shortcuts Intercepted by App
+**Problem:** App-level keyboard shortcuts (E key hold, etc.) fired even when typing in editor.
+
+**Solution:**
+- Added `onkeydown` handler to editor container that calls `e.stopPropagation()`
+- Prevents keyboard events from bubbling up to app-level handlers
+
+**Files Modified:**
+- `src/components/code/CodeEditor.svelte`: Added keydown event handler
+
 ## Notes
 
 - All transitions must be instant (no animations per project standards)
@@ -634,5 +734,6 @@ src/
 - Default example: 741 lines, complex photonics circuit
 - Comments cleared on code execution (same as file upload behavior)
 - Auto-upload to session for files <=10MB, manual sync button for files >10MB
+- Monaco Editor workers run in background threads for better performance
 
 
