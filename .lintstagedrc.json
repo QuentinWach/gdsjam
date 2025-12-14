@@ -1,10 +1,5 @@
 {
-	"*.{ts,js}": [
-		"biome check --write --no-errors-on-unmatched",
-		"biome format --write --no-errors-on-unmatched"
-	],
-	"*.svelte": [
-		"biome format --write --no-errors-on-unmatched",
-		"svelte-check --tsconfig ./tsconfig.app.json"
+	"*.{ts,js,svelte}": [
+		"biome check --write --files-ignore-unknown=true --no-errors-on-unmatched"
 	]
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
+import EditorLayout from "./components/code/EditorLayout.svelte";
 import ErrorToast from "./components/ui/ErrorToast.svelte";
 import FileUpload from "./components/ui/FileUpload.svelte";
 import HeaderBar from "./components/ui/HeaderBar.svelte";
@@ -7,12 +8,15 @@ import HelpModal from "./components/ui/HelpModal.svelte";
 import LoadingOverlay from "./components/ui/LoadingOverlay.svelte";
 import ParticipantList from "./components/ui/ParticipantList.svelte";
 import ViewerCanvas from "./components/viewer/ViewerCanvas.svelte";
+import { type ExecutionResult, pythonExecutor } from "./lib/api/pythonExecutor";
+import { getDefaultCode } from "./lib/code/defaultExample";
 import { EmbedAPI } from "./lib/embed/EmbedAPI";
 import { KeyboardShortcutManager } from "./lib/keyboard/KeyboardShortcutManager";
 import { loadGDSIIFromBuffer } from "./lib/utils/gdsLoader";
 import { fetchGDSIIFromURL } from "./lib/utils/urlLoader";
 import { collaborationStore } from "./stores/collaborationStore";
 import { commentStore } from "./stores/commentStore";
+import { editorStore } from "./stores/editorStore";
 import { gdsStore } from "./stores/gdsStore";
 
 const KEYBOARD_OWNER = "App";
@@ -27,15 +31,182 @@ let showHelpModal = $state(false);
 // Fullscreen mode state (hides header and footer)
 let fullscreenMode = $state(false);
 
+// Editor mode state
+const editorModeActive = $derived($editorStore.editorModeActive);
+
 // Embed mode state (iframe-friendly, viewer-only)
 let embedMode = $state(false);
 let embedApi: EmbedAPI | null = null;
+
+// Rate limit countdown interval (needs cleanup on unmount)
+let rateLimitCountdownInterval: NodeJS.Timeout | null = null;
 
 /**
  * Toggle fullscreen mode (hide/show header and footer)
  */
 function handleToggleFullscreen(enabled: boolean): void {
 	fullscreenMode = enabled;
+}
+
+/**
+ * Toggle editor mode
+ */
+function handleToggleEditorMode(): void {
+	const sessionId = $collaborationStore.sessionId;
+
+	if (editorModeActive) {
+		editorStore.exitEditorMode();
+	} else {
+		// Load default code if no code exists
+		if (!$editorStore.code) {
+			editorStore.setCode(getDefaultCode());
+		}
+		editorStore.enterEditorMode(sessionId);
+	}
+
+	// Trigger ViewerCanvas resize after mode toggle
+	// Wait for DOM to update (EditorLayout to mount/unmount)
+	requestAnimationFrame(() => {
+		const viewerContainer = document.querySelector(".viewer-container");
+		if (viewerContainer) {
+			const resizeEvent = new CustomEvent("viewer-resize");
+			viewerContainer.dispatchEvent(resizeEvent);
+		}
+	});
+}
+
+/**
+ * Execute Python code
+ */
+async function handleExecuteCode(): Promise<void> {
+	const code = $editorStore.code;
+	if (!code.trim()) {
+		editorStore.setExecutionError("No code to execute");
+		return;
+	}
+
+	// Set executing state
+	editorStore.setExecuting(true);
+	editorStore.setExecutionError(null);
+	editorStore.setConsoleOutput("");
+
+	try {
+		// Execute code on server
+		const result: ExecutionResult = await pythonExecutor.execute(code);
+
+		// Update console output
+		const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+		editorStore.setConsoleOutput(output);
+
+		if (!result.success) {
+			editorStore.setExecutionError(result.error || "Execution failed");
+
+			// Handle rate limiting
+			if ("retryAfter" in result) {
+				const retryAfter = (result as ExecutionResult & { retryAfter?: number }).retryAfter || 60;
+				editorStore.setRateLimitCountdown(retryAfter);
+
+				// Clear existing countdown interval if any (prevent memory leak)
+				if (rateLimitCountdownInterval) {
+					clearInterval(rateLimitCountdownInterval);
+				}
+
+				// Countdown timer
+				rateLimitCountdownInterval = setInterval(() => {
+					const current = $editorStore.rateLimitCountdown;
+					if (current <= 1) {
+						if (rateLimitCountdownInterval) {
+							clearInterval(rateLimitCountdownInterval);
+							rateLimitCountdownInterval = null;
+						}
+						editorStore.setRateLimitCountdown(0);
+					} else {
+						editorStore.setRateLimitCountdown(current - 1);
+					}
+				}, 1000);
+			}
+			return;
+		}
+
+		// If GDS file was generated, load it
+		if (result.fileId) {
+			await loadGeneratedGDS(result.fileId, result.size || 0);
+		}
+	} catch (error) {
+		editorStore.setExecutionError(
+			`Execution error: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	} finally {
+		editorStore.setExecuting(false);
+	}
+}
+
+/**
+ * Load generated GDS file from server
+ */
+async function loadGeneratedGDS(fileId: string, fileSize: number): Promise<void> {
+	const FILE_SIZE_THRESHOLD_MB = 10;
+	const fileSizeMB = fileSize / (1024 * 1024);
+
+	// Check if in session and is host
+	const isHost = $collaborationStore.isHost;
+	const isInSession = $collaborationStore.isInSession;
+
+	// Auto-upload to session if host and file size <= 10MB
+	if (isHost && isInSession && fileSizeMB <= FILE_SIZE_THRESHOLD_MB) {
+		// Auto-upload: Store file metadata in Y.js (file already on server)
+		const sessionManager = collaborationStore.getSessionManager();
+		if (sessionManager) {
+			const ydoc = sessionManager.getProvider().getDoc();
+			if (ydoc) {
+				// Store metadata in Y.js (file already on server, no upload needed)
+				ydoc.transact(() => {
+					const sessionMap = ydoc.getMap<unknown>("session");
+					sessionMap.set("fileId", fileId);
+					sessionMap.set("fileName", `generated_${Date.now()}.gds`);
+					sessionMap.set("fileSize", fileSize);
+					sessionMap.set("fileHash", fileId); // fileId is the SHA-256 hash
+					sessionMap.set("uploadedBy", sessionManager.getUserId());
+					sessionMap.set("uploadedAt", Date.now());
+				});
+
+				// Save to localStorage for session recovery
+				sessionManager.saveSessionToLocalStorage(
+					fileId,
+					`generated_${Date.now()}.gds`,
+					fileId,
+					fileSize,
+				);
+			}
+		}
+	} else if (isHost && isInSession && fileSizeMB > FILE_SIZE_THRESHOLD_MB) {
+		// Show warning toast for large files
+		// TODO: Implement toast notification with "Sync to Session" button
+		console.warn(
+			`Generated GDS file is ${fileSizeMB.toFixed(2)}MB (>${FILE_SIZE_THRESHOLD_MB}MB). Manual sync required.`,
+		);
+	}
+
+	// Load GDS file locally
+	try {
+		gdsStore.setLoading(true, "Loading generated GDS...", 0);
+
+		// Download file from server
+		const arrayBuffer = await pythonExecutor.downloadFile(fileId);
+
+		// Load into viewer
+		await loadGDSIIFromBuffer(arrayBuffer, `generated_${Date.now()}.gds`);
+
+		// Clear comments (MVP behavior)
+		commentStore.reset();
+
+		gdsStore.setLoading(false);
+	} catch (error) {
+		gdsStore.setLoading(false);
+		editorStore.setExecutionError(
+			`Failed to load GDS: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
 }
 
 async function loadFileFromUrl(fileUrl: string): Promise<void> {
@@ -344,6 +515,12 @@ onDestroy(() => {
 	KeyboardShortcutManager.unregisterByOwner(KEYBOARD_OWNER);
 	embedApi?.destroy();
 	embedApi = null;
+
+	// Clean up rate limit countdown interval (prevent memory leak)
+	if (rateLimitCountdownInterval) {
+		clearInterval(rateLimitCountdownInterval);
+		rateLimitCountdownInterval = null;
+	}
 });
 </script>
 
@@ -385,8 +562,18 @@ onDestroy(() => {
 			/>
 		{/if}
 
+		{#if editorModeActive}
+			<!-- Editor Mode: Overlay layout for code editor and console -->
+			<EditorLayout onExecute={handleExecuteCode} onClose={handleToggleEditorMode} />
+		{/if}
+
+		<!-- ViewerCanvas is always rendered, positioned via CSS based on editor mode -->
 		{#if $gdsStore.document}
-			<ViewerCanvas {fullscreenMode} onToggleFullscreen={handleToggleFullscreen} />
+			<ViewerCanvas
+				{fullscreenMode}
+				onToggleFullscreen={handleToggleFullscreen}
+				onToggleEditorMode={handleToggleEditorMode}
+			/>
 		{/if}
 
 		<!-- Participant List overlay (only shown in session) -->
