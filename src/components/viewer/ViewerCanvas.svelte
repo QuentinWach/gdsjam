@@ -731,12 +731,14 @@ function handleMouseMove(event: MouseEvent): void {
  */
 function handleMeasurementTouchStart(event: TouchEvent): void {
 	if (!renderer) return;
-	if (event.touches.length !== 1) return; // Only handle single touch
 
-	// Stop event propagation to prevent TouchController from processing it
+	// ALWAYS stop event propagation and prevent default when in measurement mode
+	// This blocks TouchController from processing ANY touch events (including two-finger zoom)
 	event.stopImmediatePropagation();
-	// Prevent default to stop browser scrolling
 	event.preventDefault();
+
+	// Only process single-touch for measurement
+	if (event.touches.length !== 1) return;
 
 	const touch = event.touches[0];
 	if (!touch) return;
@@ -765,12 +767,14 @@ function handleMeasurementTouchStart(event: TouchEvent): void {
  */
 function handleMeasurementTouchMove(event: TouchEvent): void {
 	if (!renderer) return;
-	if (event.touches.length !== 1) return; // Only handle single touch
 
-	// Stop event propagation to prevent TouchController from processing it
+	// ALWAYS stop event propagation and prevent default when in measurement mode
+	// This blocks TouchController from processing ANY touch events (including two-finger zoom)
 	event.stopImmediatePropagation();
-	// Prevent default to stop browser scrolling
 	event.preventDefault();
+
+	// Only process single-touch for measurement
+	if (event.touches.length !== 1) return;
 
 	const touch = event.touches[0];
 	if (!touch) return;
@@ -795,12 +799,14 @@ function handleMeasurementTouchMove(event: TouchEvent): void {
  */
 function handleMeasurementTouchEnd(event: TouchEvent): void {
 	if (!renderer) return;
-	if (event.changedTouches.length !== 1) return;
 
-	// Stop event propagation to prevent TouchController from processing it
+	// ALWAYS stop event propagation and prevent default when in measurement mode
+	// This blocks TouchController from processing ANY touch events (including two-finger zoom)
 	event.stopImmediatePropagation();
-	// Prevent default to stop browser scrolling
 	event.preventDefault();
+
+	// Only process single-touch for measurement
+	if (event.changedTouches.length !== 1) return;
 
 	const touch = event.changedTouches[0];
 	if (!touch) return;
