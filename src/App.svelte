@@ -60,6 +60,16 @@ function handleToggleEditorMode(): void {
 		}
 		editorStore.enterEditorMode(sessionId);
 	}
+
+	// Trigger ViewerCanvas resize after mode toggle
+	// Wait for DOM to update (EditorLayout to mount/unmount)
+	requestAnimationFrame(() => {
+		const viewerContainer = document.querySelector(".viewer-container");
+		if (viewerContainer) {
+			const resizeEvent = new CustomEvent("viewer-resize");
+			viewerContainer.dispatchEvent(resizeEvent);
+		}
+	});
 }
 
 /**

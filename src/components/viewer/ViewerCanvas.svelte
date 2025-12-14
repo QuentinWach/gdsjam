@@ -618,6 +618,14 @@ onMount(() => {
 	// Register canvas pointer handler for comment placement (handles both mouse and touch)
 	canvas.addEventListener("pointerup", handleCanvasClick);
 
+	// Listen for custom resize event from EditorLayout
+	const viewerContainer = canvas.parentElement;
+	if (viewerContainer) {
+		viewerContainer.addEventListener("viewer-resize", () => {
+			renderer?.triggerResize();
+		});
+	}
+
 	// Initialize renderer asynchronously
 	if (canvas) {
 		(async () => {

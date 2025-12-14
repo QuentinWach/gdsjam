@@ -70,6 +70,21 @@ function handleMouseMove(event: MouseEvent) {
 
 function handleMouseUp() {
 	isDragging = false;
+	// Trigger ViewerCanvas resize after dragging stops
+	triggerViewerResize();
+}
+
+// Trigger ViewerCanvas resize by dispatching a custom event
+function triggerViewerResize() {
+	// Wait for DOM to update, then find ViewerCanvas and trigger resize
+	requestAnimationFrame(() => {
+		const viewerContainer = document.querySelector(".viewer-container");
+		if (viewerContainer) {
+			// Dispatch a custom event that ViewerCanvas can listen to
+			const resizeEvent = new CustomEvent("viewer-resize");
+			viewerContainer.dispatchEvent(resizeEvent);
+		}
+	});
 }
 
 $effect(() => {
