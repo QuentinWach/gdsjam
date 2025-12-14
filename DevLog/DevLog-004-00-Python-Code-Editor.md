@@ -1,13 +1,22 @@
 # DevLog-004-00: Python Code Editor
 
 ## Metadata
-- **Document Version:** 2.0
+- **Document Version:** 2.1
 - **Created:** 2025-12-13
 - **Author:** Wentao Jiang
-- **Status:** Planning - Architecture Revised
+- **Status:** Planning - Ready for Implementation
 - **Related Documents:** DevLog-001-mvp-implementation-plan.md
 
 ## Changelog
+- **v2.1 (2025-12-14):** Refined server-side execution requirements
+  - Specified Python 3.12 in virtual environment
+  - Updated rate limiting: 10 executions per IP per minute (was per hour)
+  - Clarified file size limit: 100MB for generated GDS files
+  - Added module whitelist/blacklist enforcement
+  - Added server path sanitization in error messages
+  - Added partial stdout/stderr return on timeout
+  - Documented Python environment setup steps
+  - Updated security considerations for MVP scope
 - **v2.0 (2025-12-13):** Architecture change from client-side to server-side execution
   - Documented failed Pyodide POC due to native dependencies (gdstk, watchdog)
   - Evaluated WASM compilation effort (1-2 weeks, not viable for MVP)
@@ -109,10 +118,12 @@ Enable users to write and execute gdsfactory code with instant visualization of 
 **Security Considerations:**
 - Sandboxed execution in isolated temporary directories
 - 30-second timeout enforcement
-- Rate limiting: 10 executions per IP per hour
-- File size limits: 100MB maximum
-- Output size limits: 10MB maximum
-- Future enhancements: Docker containerization, network isolation
+- Rate limiting: 10 executions per IP per minute
+- File size limits: 100MB maximum (for generated GDS files)
+- Module whitelist/blacklist enforcement before execution
+- Server path sanitization in error messages
+- Partial stdout/stderr return on timeout
+- Future enhancements: Docker containerization, network isolation, CPU/memory limits
 
 ---
 
@@ -157,7 +168,7 @@ Enable users to write and execute gdsfactory code with instant visualization of 
 1. Client sends Python code to `POST /api/execute`
 2. Server creates isolated temporary directory
 3. Server writes code to `temp/script.py`
-4. Server executes: `python3 temp/script.py` (with 30s timeout)
+4. Server executes Python script in venv (Python 3.12) with 30s timeout
 5. Server captures stdout/stderr
 6. Server searches for `*.gds` files in temp directory
 7. If GDS file found:
@@ -295,9 +306,10 @@ if (result.success) {
 
 6. **Execution Safety**
    - Server-side timeout: 30 seconds
-   - Rate limiting: 10 executions per IP per hour
-   - File size limits: 100MB maximum
-   - Output size limits: 10MB maximum
+   - Rate limiting: 10 executions per IP per minute
+   - File size limits: 100MB maximum (for generated GDS files)
+   - Module whitelist/blacklist enforcement
+   - Server path sanitization in error output
 
 ### Deferred to Post-MVP
 
@@ -312,6 +324,43 @@ if (result.success) {
 
 ---
 
+## Python Environment Setup
+
+**Server Requirements:**
+- Python 3.12 (latest stable version)
+- Virtual environment for isolation
+- Pre-installed packages:
+  - gdsfactory (latest stable version)
+  - gdstk (gdsfactory dependency)
+  - kfactory (gdsfactory dependency)
+  - numpy, scipy, matplotlib (common dependencies)
+  - Other gdsfactory dependencies as needed
+
+**Installation Steps:**
+```bash
+# On OCI instance
+sudo apt update
+sudo apt install python3.12 python3.12-venv python3.12-dev
+
+# Create virtual environment
+mkdir -p /opt/gdsjam
+python3.12 -m venv /opt/gdsjam/venv
+
+# Activate and install packages
+source /opt/gdsjam/venv/bin/activate
+pip install --upgrade pip
+pip install gdsfactory numpy scipy matplotlib
+
+# Verify installation
+python -c "import gdsfactory as gf; print(gf.__version__)"
+```
+
+**Environment Variables:**
+- `PYTHON_VENV_PATH`: Path to Python virtual environment (default: `/opt/gdsjam/venv`)
+- `PYTHON_TIMEOUT`: Execution timeout in seconds (default: `30`)
+- `PYTHON_RATE_LIMIT_WINDOW`: Rate limit window in milliseconds (default: `60000` = 1 minute)
+- `PYTHON_RATE_LIMIT_MAX`: Max executions per IP per window (default: `10`)
+
 ## Implementation Plan
 
 ### Phase 1: Server-Side Python Executor (4-6 hours)
@@ -323,8 +372,14 @@ if (result.success) {
    - `executePythonCode(code)` function using `child_process.spawn`
    - Temporary directory management using `tmp` package
    - Timeout enforcement (30 seconds)
+   - Module whitelist/blacklist validation before execution
+     - Whitelist: gdsfactory, numpy, scipy, matplotlib, math, itertools, functools, etc.
+     - Blacklist: os, subprocess, sys, socket, urllib, requests, etc.
+     - Check import statements with regex before execution
    - GDS file detection and storage
-   - Rate limiting middleware
+   - Path sanitization in error messages (remove /opt/gdsjam/, /tmp/, etc.)
+   - Partial stdout/stderr capture on timeout
+   - Rate limiting middleware (10 per IP per minute)
    - `setupPythonRoutes(app)` to configure Express routes
 
 2. Update `server/server.js`
@@ -334,13 +389,20 @@ if (result.success) {
    - Add `tmp` dependency
 
 4. Update `server/.env.example`
-   - Add Python execution configuration
+   - Add Python execution configuration:
+     - PYTHON_VENV_PATH
+     - PYTHON_TIMEOUT
+     - PYTHON_RATE_LIMIT_WINDOW
+     - PYTHON_RATE_LIMIT_MAX
 
 5. Test endpoint with curl/Postman
-   - Verify successful execution
-   - Verify error handling
-   - Verify rate limiting
-   - Verify timeout enforcement
+   - Verify successful execution with gdsfactory code
+   - Verify error handling (syntax errors, runtime errors)
+   - Verify module whitelist/blacklist enforcement
+   - Verify path sanitization in error messages
+   - Verify rate limiting (10 per minute)
+   - Verify timeout enforcement (30 seconds)
+   - Verify partial output on timeout
 
 **Files to Create:**
 - `server/pythonExecutor.js` (~200 lines)
@@ -352,11 +414,14 @@ if (result.success) {
 
 **Success Criteria:**
 - `POST /api/execute` endpoint accepts Python code
-- Server executes code in isolated temp directory
-- Generated GDS files are saved to file storage
+- Server executes code in isolated temp directory using Python 3.12 venv
+- Module whitelist/blacklist prevents dangerous imports
+- Generated GDS files are saved to file storage (SHA-256 hash)
 - Returns fileId for client to download
+- Error messages have sanitized paths (no server directory info)
+- Timeout returns partial stdout/stderr
 - Proper error handling and timeout enforcement
-- Rate limiting prevents abuse
+- Rate limiting prevents abuse (10 per IP per minute)
 
 **Deliverable:** Working API endpoint with tests
 
@@ -488,7 +553,7 @@ if (result.success) {
 6. Code persists across page refreshes (localStorage)
 7. Ctrl/Cmd+Enter keyboard shortcut executes code
 8. Error messages are clear and actionable (stdout/stderr displayed)
-9. Rate limiting prevents abuse (10 executions per IP per hour)
+9. Rate limiting prevents abuse (10 executions per IP per minute)
 10. No regressions in existing upload/render functionality
 11. Mobile shows read-only view with desktop prompt
 
