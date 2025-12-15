@@ -27,6 +27,7 @@ import {
 	MAX_POLYGONS_PER_RENDER,
 	POLYGON_FILL_MODE,
 } from "../config";
+import { DEBUG_MEASUREMENT } from "../debug";
 import { type RTreeItem, SpatialIndex } from "../spatial/RTree";
 import { InputController } from "./controls/InputController";
 import { LODManager } from "./lod/LODManager";
@@ -34,6 +35,7 @@ import { ZoomLimits } from "./lod/ZoomLimits";
 import { CoordinatesDisplay } from "./overlays/CoordinatesDisplay";
 import { FPSCounter } from "./overlays/FPSCounter";
 import { GridOverlay } from "./overlays/GridOverlay";
+import { MeasurementOverlay } from "./overlays/MeasurementOverlay";
 import { ScaleBarOverlay } from "./overlays/ScaleBarOverlay";
 import { GDSRenderer, type RenderProgressCallback } from "./rendering/GDSRenderer";
 import { ViewportManager } from "./viewport/ViewportManager";
@@ -48,6 +50,7 @@ export class PixiRenderer {
 	private app: Application;
 	private mainContainer: Container;
 	private gridContainer: Container;
+	private measurementContainer: Container;
 	private spatialIndex: SpatialIndex;
 	private fpsText: Text;
 	private memoryText: Text;
@@ -85,6 +88,7 @@ export class PixiRenderer {
 	private coordinatesDisplay!: CoordinatesDisplay;
 	private gridOverlay!: GridOverlay;
 	private scaleBarOverlay!: ScaleBarOverlay;
+	private measurementOverlay!: MeasurementOverlay;
 
 	// Input Controllers
 	private inputController!: InputController;
@@ -102,6 +106,7 @@ export class PixiRenderer {
 		this.app = new Application();
 		this.mainContainer = new Container();
 		this.gridContainer = new Container();
+		this.measurementContainer = new Container();
 		this.scaleBarContainer = new Container();
 		this.spatialIndex = new SpatialIndex();
 
@@ -157,13 +162,15 @@ export class PixiRenderer {
 
 		await this.app.init(initOptions);
 
-		// Add containers in order: grid, main content, UI overlays
+		// Add containers in order: grid, main content, measurement overlay, UI overlays
 		this.app.stage.addChild(this.gridContainer);
 		this.app.stage.addChild(this.mainContainer);
+		this.app.stage.addChild(this.measurementContainer);
 
 		// Flip Y-axis to match GDSII coordinate system
 		this.mainContainer.scale.y = -1;
 		this.gridContainer.scale.y = -1;
+		// Note: measurementContainer does NOT flip Y-axis (renders in screen space)
 
 		// Add UI overlays
 		// Both texts are right-aligned (anchor at 1, 0), so x position is the right edge
@@ -186,6 +193,7 @@ export class PixiRenderer {
 		this.coordinatesDisplay = new CoordinatesDisplay(this.coordsText);
 		this.gridOverlay = new GridOverlay(this.gridContainer, this.app);
 		this.scaleBarOverlay = new ScaleBarOverlay(this.scaleBarContainer, this.app);
+		this.measurementOverlay = new MeasurementOverlay(this.measurementContainer, this.app);
 
 		this.app.ticker.add(this.onTick.bind(this));
 		this.mainContainer.eventMode = "static";
@@ -894,6 +902,35 @@ export class PixiRenderer {
 
 		// Notify callback
 		this.notifyViewportChanged();
+	}
+
+	/**
+	 * Update measurement overlay
+	 * Called from ViewerCanvas when measurements change or viewport changes
+	 */
+	updateMeasurementOverlay(
+		measurements: Map<string, import("../measurements/types").DistanceMeasurement>,
+		activeMeasurement: import("../measurements/types").ActiveMeasurement | null,
+		cursorWorldPos: { worldX: number; worldY: number } | null,
+		visible: boolean,
+		highlightedMeasurementId: string | null,
+	): void {
+		if (!this.measurementOverlay) {
+			if (DEBUG_MEASUREMENT) {
+				console.warn("[PixiRenderer] measurementOverlay not initialized yet");
+			}
+			return;
+		}
+		this.measurementOverlay.update(
+			measurements,
+			activeMeasurement,
+			cursorWorldPos,
+			visible,
+			this.mainContainer.x,
+			this.mainContainer.y,
+			this.mainContainer.scale.x,
+			highlightedMeasurementId,
+		);
 	}
 
 	/**

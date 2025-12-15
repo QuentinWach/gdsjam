@@ -11,6 +11,8 @@ interface Props {
 	onToggleCommentsVisibility?: () => void;
 	onToggleCommentPanel?: () => void;
 	onToggleEditorMode?: () => void;
+	onToggleMeasurementMode?: () => void;
+	onClearMeasurements?: () => void;
 	performanceVisible: boolean;
 	layersVisible: boolean;
 	minimapVisible?: boolean;
@@ -19,6 +21,7 @@ interface Props {
 	commentsVisible?: boolean;
 	commentPanelVisible?: boolean;
 	editorModeActive?: boolean;
+	measurementModeActive?: boolean;
 }
 
 const {
@@ -31,6 +34,8 @@ const {
 	onToggleCommentsVisibility,
 	onToggleCommentPanel,
 	onToggleEditorMode,
+	onToggleMeasurementMode,
+	onClearMeasurements,
 	performanceVisible,
 	layersVisible,
 	minimapVisible = true,
@@ -39,12 +44,36 @@ const {
 	commentsVisible = true,
 	commentPanelVisible = false,
 	editorModeActive = false,
+	measurementModeActive = false,
 }: Props = $props();
 
 let menuOpen = $state(false);
+let commentsSubmenuOpen = $state(false);
+let measurementsSubmenuOpen = $state(false);
 
 function toggleMenu() {
 	menuOpen = !menuOpen;
+	// Close submenus when main menu closes
+	if (!menuOpen) {
+		commentsSubmenuOpen = false;
+		measurementsSubmenuOpen = false;
+	}
+}
+
+function toggleCommentsSubmenu() {
+	commentsSubmenuOpen = !commentsSubmenuOpen;
+	// Close measurements submenu when opening comments
+	if (commentsSubmenuOpen) {
+		measurementsSubmenuOpen = false;
+	}
+}
+
+function toggleMeasurementsSubmenu() {
+	measurementsSubmenuOpen = !measurementsSubmenuOpen;
+	// Close comments submenu when opening measurements
+	if (measurementsSubmenuOpen) {
+		commentsSubmenuOpen = false;
+	}
 }
 
 function handleFitView() {
@@ -85,21 +114,36 @@ function handleToggleFullscreen() {
 function handleToggleCommentMode() {
 	onToggleCommentMode?.();
 	menuOpen = false;
+	commentsSubmenuOpen = false;
 }
 
 function handleToggleCommentsVisibility() {
 	onToggleCommentsVisibility?.();
 	menuOpen = false;
+	commentsSubmenuOpen = false;
 }
 
 function handleToggleCommentPanel() {
 	onToggleCommentPanel?.();
 	menuOpen = false;
+	commentsSubmenuOpen = false;
 }
 
 function handleToggleEditorMode() {
 	onToggleEditorMode?.();
 	menuOpen = false;
+}
+
+function handleToggleMeasurementMode() {
+	onToggleMeasurementMode?.();
+	menuOpen = false;
+	measurementsSubmenuOpen = false;
+}
+
+function handleClearMeasurements() {
+	onClearMeasurements?.();
+	menuOpen = false;
+	measurementsSubmenuOpen = false;
 }
 </script>
 
@@ -189,42 +233,54 @@ function handleToggleEditorMode() {
 				{/if}
 			</button>
 
-			<!-- Comment Mode Toggle -->
-			<button class="menu-item" onclick={handleToggleCommentMode} class:active={commentModeActive} title="Toggle Comment Mode (C)">
+			<!-- Comments Submenu -->
+			<button class="menu-item" onclick={toggleCommentsSubmenu} class:active={commentsSubmenuOpen} title="Comments">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
 				</svg>
-				<span>Add Comment</span>
-			</button>
-
-			<!-- Comments Visibility Toggle -->
-			<button class="menu-item" onclick={handleToggleCommentsVisibility} class:active={commentsVisible} title="Show/Hide Comments">
-				{#if commentsVisible}
-					<!-- Eye icon (visible) -->
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-						<circle cx="12" cy="12" r="3"/>
-					</svg>
-					<span>Hide Comments</span>
-				{:else}
-					<!-- Eye-off icon (hidden) -->
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-						<line x1="1" y1="1" x2="23" y2="23"/>
-					</svg>
-					<span>Show Comments</span>
-				{/if}
-			</button>
-
-			<!-- Comment Panel Toggle -->
-			<button class="menu-item" onclick={handleToggleCommentPanel} class:active={commentPanelVisible} title="Toggle Comment Panel">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-					<line x1="9" y1="9" x2="15" y2="9"/>
-					<line x1="9" y1="13" x2="15" y2="13"/>
+				<span>Comments</span>
+				<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:open={commentsSubmenuOpen}>
+					<polyline points="9 18 15 12 9 6"/>
 				</svg>
-				<span>Comment Panel</span>
 			</button>
+
+			<!-- Comments Submenu Items -->
+			{#if commentsSubmenuOpen}
+				<div class="submenu-items">
+					<button class="submenu-item" onclick={handleToggleCommentMode} class:active={commentModeActive} title="Toggle Comment Mode (C)">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+							<circle cx="12" cy="10" r="1" fill="currentColor"/>
+						</svg>
+						<span>Add Comment</span>
+					</button>
+
+					<button class="submenu-item" onclick={handleToggleCommentsVisibility} class:active={commentsVisible} title="Show/Hide Comments">
+						{#if commentsVisible}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+								<circle cx="12" cy="12" r="3"/>
+							</svg>
+							<span>Hide Comments</span>
+						{:else}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+								<line x1="1" y1="1" x2="23" y2="23"/>
+							</svg>
+							<span>Show Comments</span>
+						{/if}
+					</button>
+
+					<button class="submenu-item" onclick={handleToggleCommentPanel} class:active={commentPanelVisible} title="Toggle Comment Panel">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+							<line x1="9" y1="9" x2="15" y2="9"/>
+							<line x1="9" y1="13" x2="15" y2="13"/>
+						</svg>
+						<span>Comment Panel</span>
+					</button>
+				</div>
+			{/if}
 
 			<!-- Editor Mode Toggle -->
 			<button class="menu-item" onclick={handleToggleEditorMode} class:active={editorModeActive} title="Toggle Editor Mode (Hold E)">
@@ -234,6 +290,49 @@ function handleToggleEditorMode() {
 				</svg>
 				<span>Editor Mode</span>
 			</button>
+
+			<!-- Measurements Submenu -->
+			<button class="menu-item" onclick={toggleMeasurementsSubmenu} class:active={measurementsSubmenuOpen} title="Measurements">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M3 3l18 18"/>
+					<path d="M3 21V3h18"/>
+					<path d="M7 7v14"/>
+					<path d="M11 11v10"/>
+					<path d="M15 15v6"/>
+					<path d="M19 19v2"/>
+				</svg>
+				<span>Measurements</span>
+				<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:open={measurementsSubmenuOpen}>
+					<polyline points="9 18 15 12 9 6"/>
+				</svg>
+			</button>
+
+			<!-- Measurements Submenu Items -->
+			{#if measurementsSubmenuOpen}
+				<div class="submenu-items">
+					<button class="submenu-item" onclick={handleToggleMeasurementMode} class:active={measurementModeActive} title="Toggle Measurement Mode (Hold M)">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M3 3l18 18"/>
+							<path d="M3 21V3h18"/>
+							<path d="M7 7v14"/>
+							<path d="M11 11v10"/>
+							<path d="M15 15v6"/>
+							<path d="M19 19v2"/>
+						</svg>
+						<span>Measure Distance</span>
+					</button>
+
+					<button class="submenu-item" onclick={handleClearMeasurements} title="Clear All Measurements (Ctrl/Cmd+K)">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="3 6 5 6 21 6"/>
+							<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+							<line x1="10" y1="11" x2="10" y2="17"/>
+							<line x1="14" y1="11" x2="14" y2="17"/>
+						</svg>
+						<span>Clear Measurements</span>
+					</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -334,6 +433,65 @@ function handleToggleEditorMode() {
 	.menu-item svg {
 		width: 20px;
 		height: 20px;
+		flex-shrink: 0;
+	}
+
+	.menu-item .chevron {
+		margin-left: auto;
+		width: 16px;
+		height: 16px;
+		transition: transform 0.2s ease;
+	}
+
+	.menu-item .chevron.open {
+		transform: rotate(90deg);
+	}
+
+	.submenu-items {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding-left: 12px;
+		margin-top: -2px;
+	}
+
+	.submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 14px;
+		background: rgba(20, 20, 20, 0.95);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 6px;
+		color: rgba(255, 255, 255, 0.9);
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+		min-width: 148px;
+		backdrop-filter: blur(10px);
+	}
+
+	.submenu-item:hover {
+		background: rgba(40, 40, 40, 0.95);
+		border-color: rgba(255, 255, 255, 0.15);
+		transform: translateX(-2px);
+	}
+
+	.submenu-item:active {
+		transform: translateX(-2px) scale(0.98);
+	}
+
+	.submenu-item.active {
+		background: rgba(59, 130, 246, 0.15);
+		border-color: rgba(59, 130, 246, 0.4);
+	}
+
+	.submenu-item svg {
+		width: 18px;
+		height: 18px;
 		flex-shrink: 0;
 	}
 

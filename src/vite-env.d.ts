@@ -15,6 +15,7 @@ interface ImportMetaEnv {
 	readonly VITE_DEBUG_COLLABORATION?: string;
 	readonly VITE_DEBUG_EDITOR_LAYOUT?: string;
 	readonly VITE_DEBUG_CODE_EDITOR?: string;
+	readonly VITE_DEBUG_MEASUREMENT?: string;
 }
 
 interface ImportMeta {

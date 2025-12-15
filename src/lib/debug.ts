@@ -18,3 +18,4 @@ export const DEBUG_RENDERER = import.meta.env.VITE_DEBUG_RENDERER === "true" || 
 export const DEBUG_LOD = import.meta.env.VITE_DEBUG_LOD === "true" || false;
 export const DEBUG_VIEWPORT = import.meta.env.VITE_DEBUG_VIEWPORT === "true" || false;
 export const DEBUG_COLLABORATION = import.meta.env.VITE_DEBUG_COLLABORATION === "true" || false;
+export const DEBUG_MEASUREMENT = import.meta.env.VITE_DEBUG_MEASUREMENT === "true" || false;
