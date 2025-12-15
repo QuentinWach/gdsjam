@@ -1285,6 +1285,7 @@ function toggleMinimap() {
 		onToggleCommentPanel={() => { commentPanelVisible = !commentPanelVisible; }}
 		onToggleEditorMode={onToggleEditorMode}
 		onToggleMeasurementMode={() => measurementStore.toggleMeasurementMode()}
+		onClearMeasurements={() => measurementStore.clearAllMeasurements()}
 		performanceVisible={panelsVisible}
 		minimapVisible={minimapVisible}
 		layersVisible={layerPanelVisible}
