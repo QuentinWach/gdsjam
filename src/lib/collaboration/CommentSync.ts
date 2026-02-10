@@ -38,6 +38,7 @@ export class CommentSync {
 
 	setCallbacks(callbacks: CommentSyncCallbacks): void {
 		this.callbacks = callbacks;
+		this.emitCurrentState();
 	}
 
 	/**
@@ -68,18 +69,8 @@ export class CommentSync {
 
 		// Trigger initial callbacks
 		const initialComments = this.commentsArray.toArray();
-		const initialPermissions = this.sessionMap.get("commentPermissions") as
-			| CommentPermissions
-			| undefined;
-
 		this.lastCommentCount = initialComments.length;
-
-		if (initialComments.length > 0) {
-			this.callbacks.onCommentsChanged?.(initialComments);
-		}
-		if (initialPermissions) {
-			this.callbacks.onPermissionsChanged?.(initialPermissions);
-		}
+		this.emitCurrentState();
 
 		// Start heartbeat polling as fallback for missed Y.js observer events
 		this.startHeartbeat();
@@ -116,6 +107,22 @@ export class CommentSync {
 		if (comments.length !== this.lastCommentCount) {
 			this.lastCommentCount = comments.length;
 			this.callbacks.onCommentsChanged?.(comments);
+		}
+	}
+
+	/**
+	 * Emit current comments and permissions to callbacks.
+	 * Used on initialization and when callbacks are set after sync has already happened.
+	 */
+	private emitCurrentState(): void {
+		if (!this.commentsArray || !this.sessionMap) return;
+
+		const comments = this.commentsArray.toArray();
+		this.callbacks.onCommentsChanged?.(comments);
+
+		const permissions = this.sessionMap.get("commentPermissions") as CommentPermissions | undefined;
+		if (permissions) {
+			this.callbacks.onPermissionsChanged?.(permissions);
 		}
 	}
 
