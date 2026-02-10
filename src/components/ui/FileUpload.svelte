@@ -18,6 +18,21 @@ let isDragging = $state(false);
 let fileInputElement = $state<HTMLInputElement>();
 let loadingExampleId: string | null = $state(null);
 
+const EXAMPLE_CATEGORY_ORDER = ["photonics", "digital", "demo"] as const;
+const EXAMPLE_CATEGORY_LABELS: Record<(typeof EXAMPLE_CATEGORY_ORDER)[number], string> = {
+	photonics: "Photonics",
+	digital: "Digital",
+	demo: "Demo",
+};
+
+const examplesByCategory = $derived(
+	EXAMPLE_CATEGORY_ORDER.map((category) => ({
+		category,
+		label: EXAMPLE_CATEGORY_LABELS[category],
+		examples: EXAMPLES.filter((example) => example.category === category),
+	})).filter((group) => group.examples.length > 0),
+);
+
 /**
  * Sync file to collaboration session
  * - If in session as host: upload file to session for immediate sync
@@ -220,65 +235,70 @@ function triggerFileInput() {
 		<!-- Examples section -->
 		<div class="examples-section">
 			<h3 class="examples-title">Or try an example:</h3>
-			<div class="examples-grid">
-				{#each EXAMPLES as example (example.id)}
-					<button
-						class="example-card"
-						class:loading={loadingExampleId === example.id}
-						disabled={loadingExampleId !== null}
-						onclick={(e) => handleExampleClick(example, e)}
-					>
-						{#if example.previewOverviewUrl}
-							<div class="example-preview">
-								<img
-									src={example.previewOverviewUrl}
-									alt={example.name}
-									loading="lazy"
-								/>
-							</div>
-						{:else}
-							<div class="example-icon">
-								{#if example.category === 'photonics'}
-									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-										<circle cx="12" cy="12" r="3" stroke-width="2"/>
-										<path stroke-width="2" d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-									</svg>
-								{:else if example.category === 'digital'}
-									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-										<rect x="4" y="4" width="16" height="16" rx="2" stroke-width="2"/>
-										<path stroke-width="2" d="M9 9h6M9 12h6M9 15h4"/>
-									</svg>
+			{#each examplesByCategory as group (group.category)}
+				<div class="example-category-group">
+					<h4 class="example-category-title">{group.label}</h4>
+					<div class="examples-grid">
+						{#each group.examples as example (example.id)}
+							<button
+								class="example-card"
+								class:loading={loadingExampleId === example.id}
+								disabled={loadingExampleId !== null}
+								onclick={(e) => handleExampleClick(example, e)}
+							>
+								{#if example.previewOverviewUrl}
+									<div class="example-preview">
+										<img
+											src={example.previewOverviewUrl}
+											alt={example.name}
+											loading="lazy"
+										/>
+									</div>
 								{:else}
-									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-										<rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2"/>
-										<path stroke-width="2" d="M3 9h18M9 21V9"/>
-									</svg>
+									<div class="example-icon">
+										{#if example.category === 'photonics'}
+											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+												<circle cx="12" cy="12" r="3" stroke-width="2"/>
+												<path stroke-width="2" d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+											</svg>
+										{:else if example.category === 'digital'}
+											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+												<rect x="4" y="4" width="16" height="16" rx="2" stroke-width="2"/>
+												<path stroke-width="2" d="M9 9h6M9 12h6M9 15h4"/>
+											</svg>
+										{:else}
+											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+												<rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2"/>
+												<path stroke-width="2" d="M3 9h18M9 21V9"/>
+											</svg>
+										{/if}
+									</div>
 								{/if}
-							</div>
-						{/if}
-						<div class="example-info">
-							<span class="example-name">{example.name}</span>
-							<span class="example-desc">{example.description}</span>
-							<span class="example-meta">
-								{example.fileSizeMB < 1 ? `${Math.round(example.fileSizeMB * 1000)} KB` : `${example.fileSizeMB.toFixed(1)} MB`}
-								·
-								<a
-									href={example.sourceUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-									class="example-source-link"
-									onclick={(e) => e.stopPropagation()}
-								>{example.attribution}</a>
-							</span>
-						</div>
-						{#if loadingExampleId === example.id}
-							<div class="example-loading">
-								<div class="loading-spinner"></div>
-							</div>
-						{/if}
-					</button>
-				{/each}
-			</div>
+								<div class="example-info">
+									<span class="example-name">{example.name}</span>
+									<span class="example-desc">{example.description}</span>
+									<span class="example-meta">
+										{example.fileSizeMB < 1 ? `${Math.round(example.fileSizeMB * 1000)} KB` : `${example.fileSizeMB.toFixed(1)} MB`}
+										·
+										<a
+											href={example.sourceUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="example-source-link"
+											onclick={(e) => e.stopPropagation()}
+										>{example.attribution}</a>
+									</span>
+								</div>
+								{#if loadingExampleId === example.id}
+									<div class="example-loading">
+										<div class="loading-spinner"></div>
+									</div>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/each}
 		</div>
 	</div>
 {/if}
@@ -375,6 +395,23 @@ function triggerFileInput() {
 		color: #888;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+
+	.example-category-group {
+		margin-top: 1rem;
+	}
+
+	.example-category-group:first-of-type {
+		margin-top: 0;
+	}
+
+	.example-category-title {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #9aa0a6;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.examples-grid {

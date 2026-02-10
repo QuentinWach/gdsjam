@@ -17,6 +17,7 @@ import type {
 	AwarenessState,
 	CollaborativeViewportState,
 	ParticipantViewport,
+	YjsParticipant,
 	YjsSessionData,
 } from "./types";
 import type { YjsProvider } from "./YjsProvider";
@@ -338,6 +339,9 @@ export class ViewportSync {
 		const states = awareness.getStates();
 		const broadcastHostId = this.getBroadcastHostId();
 		const isFollowing = this.shouldFollowHost();
+		const sessionMap = this.getSessionMap();
+		const participants = (sessionMap.get("participants") as YjsParticipant[] | undefined) ?? [];
+		const participantById = new Map(participants.map((p) => [p.userId, p]));
 
 		const viewports: ParticipantViewport[] = [];
 
@@ -354,11 +358,14 @@ export class ViewportSync {
 			}
 
 			const isFollowed = isFollowing && awarenessState.userId === broadcastHostId;
+			const participant = participantById.get(awarenessState.userId);
+			const displayName = awarenessState.displayName || participant?.displayName || "Unknown";
+			const color = awarenessState.color || participant?.color || "#888888";
 
 			viewports.push({
 				userId: awarenessState.userId,
-				displayName: awarenessState.displayName || "Unknown",
-				color: awarenessState.color || "#888888",
+				displayName,
+				color,
 				viewport: awarenessState.viewport,
 				isFollowed,
 			});

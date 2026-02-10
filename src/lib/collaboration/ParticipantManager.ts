@@ -111,7 +111,7 @@ const ANIMALS = [
 const PARTICIPANT_HEARTBEAT_INTERVAL = 5000; // 5 seconds
 
 // Grace period before considering a participant stale (milliseconds)
-const PARTICIPANT_STALE_THRESHOLD = 15000; // 15 seconds
+const PARTICIPANT_STALE_THRESHOLD = 30000; // 30 seconds
 
 export class ParticipantManager {
 	private yjsProvider: YjsProvider;
@@ -163,18 +163,23 @@ export class ParticipantManager {
 	private updateLastSeen(): void {
 		const sessionMap = this.yjsProvider.getMap<any>("session");
 		const participants = (sessionMap.get("participants") as YjsParticipant[]) || [];
+		const now = Date.now();
 
+		let foundSelf = false;
 		const updatedParticipants = participants.map((p) => {
 			if (p.userId === this.userId) {
-				return { ...p, lastSeen: Date.now() };
+				foundSelf = true;
+				return { ...p, lastSeen: now };
 			}
 			return p;
 		});
 
-		// Only update if we found ourselves
-		if (updatedParticipants.some((p) => p.userId === this.userId)) {
-			sessionMap.set("participants", updatedParticipants);
-		}
+		// Self-heal participant list if our entry was dropped by a concurrent write.
+		const participantsWithSelf = foundSelf
+			? updatedParticipants
+			: [...updatedParticipants, this.createLocalParticipant(now, now)];
+
+		sessionMap.set("participants", participantsWithSelf);
 	}
 
 	/**
@@ -204,10 +209,21 @@ export class ParticipantManager {
 		const sessionMap = this.yjsProvider.getMap<any>("session");
 		const participants = (sessionMap.get("participants") as YjsParticipant[]) || [];
 		const now = Date.now();
+		const awareness = this.yjsProvider.getAwareness();
+		const awarenessUserIds = new Set<string>();
+
+		for (const [, state] of awareness.getStates()) {
+			const userId = (state as { userId?: string } | null | undefined)?.userId;
+			if (typeof userId === "string" && userId.length > 0) {
+				awarenessUserIds.add(userId);
+			}
+		}
 
 		const activeParticipants = participants.filter((p) => {
 			// Don't remove self
 			if (p.userId === this.userId) return true;
+			// Keep participants that are still present in awareness.
+			if (awarenessUserIds.has(p.userId)) return true;
 
 			// Check if stale
 			const elapsed = now - (p.lastSeen || p.joinedAt);
@@ -314,21 +330,31 @@ export class ParticipantManager {
 		const displayName = this.generateUniqueDisplayName(this.userId, existingNames);
 		this.localDisplayName = displayName;
 
-		// Create participant entry
 		const now = Date.now();
-		const participant: YjsParticipant = {
-			userId: this.userId,
-			displayName,
-			joinedAt: now,
-			lastSeen: now,
-			color: this.localColor,
-		};
+		const participant = this.createLocalParticipant(now, now, displayName);
 
 		// Add to participants array
 		this.yjsProvider.getDoc().transact(() => {
 			const updatedParticipants = [...existingParticipants, participant];
 			sessionMap.set("participants", updatedParticipants);
 		});
+	}
+
+	/**
+	 * Create a participant record for the local user.
+	 */
+	private createLocalParticipant(
+		joinedAt: number,
+		lastSeen: number,
+		displayName: string | null = this.localDisplayName,
+	): YjsParticipant {
+		return {
+			userId: this.userId,
+			displayName: displayName || this.generateBaseName(this.userId),
+			joinedAt,
+			lastSeen,
+			color: this.localColor,
+		};
 	}
 
 	/**
