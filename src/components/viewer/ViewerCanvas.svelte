@@ -12,6 +12,7 @@ import { KeyboardShortcutManager } from "../../lib/keyboard/KeyboardShortcutMana
 import { snapToAxis } from "../../lib/measurements/utils";
 import { PixiRenderer } from "../../lib/renderer/PixiRenderer";
 import { generateUUID } from "../../lib/utils/uuid";
+import { setupViewerCollabSync } from "../../lib/viewer/setupViewerCollabSync";
 import { ViewerKeyModeController } from "../../lib/viewer/ViewerKeyModeController";
 import { collaborationStore } from "../../stores/collaborationStore";
 import { commentStore } from "../../stores/commentStore";
@@ -829,9 +830,7 @@ function setupViewportSync() {
 	const sessionManager = collaborationStore.getSessionManager();
 	if (!sessionManager) return;
 
-	// Set up callbacks for viewport sync
-	sessionManager.setViewportSyncCallbacks({
-		// When host's viewport changes, apply it if we're following
+	setupViewerCollabSync(renderer, sessionManager, {
 		onHostViewportChanged: (viewport: CollaborativeViewportState) => {
 			// Read current state from store (not captured $derived values)
 			const state = get(collaborationStore);
@@ -866,33 +865,19 @@ function setupViewportSync() {
 			// Increment viewportVersion to trigger comment bubble position updates
 			viewportVersion++;
 		},
-
-		// When broadcast state changes
 		onBroadcastStateChanged: (enabled: boolean, hostId: string | null) => {
 			collaborationStore.handleBroadcastStateChanged(enabled, hostId);
 		},
-
-		// When participant viewports change (for minimap)
 		onParticipantViewportsChanged: (viewports: ParticipantViewport[]) => {
 			participantViewports = viewports;
 		},
-	});
-
-	// Set up blocked callback for showing toast when user tries to interact while following
-	renderer.setOnViewportBlocked(() => {
-		// Read current state from store (not captured $derived values)
-		const state = get(collaborationStore);
-		if (state.isFollowing && !state.isHost) {
-			collaborationStore.showFollowToast();
-		}
-	});
-
-	// Update screen dimensions for viewport sync
-	const screen = renderer.getScreenDimensions();
-	sessionManager.getViewportSync()?.setScreenDimensions(screen.width, screen.height);
-
-	// Set up layer sync callbacks
-	sessionManager.setLayerSyncCallbacks({
+		onViewportBlocked: () => {
+			// Read current state from store (not captured $derived values)
+			const state = get(collaborationStore);
+			if (state.isFollowing && !state.isHost) {
+				collaborationStore.showFollowToast();
+			}
+		},
 		onHostLayerVisibilityChanged: (visibility: { [key: string]: boolean }) => {
 			// Apply to gdsStore (source of truth)
 			for (const [key, visible] of Object.entries(visibility)) {
@@ -909,13 +894,9 @@ function setupViewportSync() {
 			// Notify renderer
 			window.dispatchEvent(new CustomEvent("layer-visibility-changed", { detail: { visibility } }));
 		},
-		onBroadcastStateChanged: (enabled: boolean, _hostId: string | null) => {
+		onLayerBroadcastStateChanged: (enabled: boolean, _hostId: string | null) => {
 			collaborationStore.handleLayerBroadcastStateChanged(enabled);
 		},
-	});
-
-	// Set up callbacks for fullscreen sync
-	sessionManager.setFullscreenSyncCallbacks({
 		onFullscreenStateChanged: (enabled: boolean, _hostId: string | null) => {
 			collaborationStore.handleFullscreenStateChanged(enabled, _hostId);
 			// Trigger fullscreen mode change in App.svelte via callback
@@ -923,10 +904,6 @@ function setupViewportSync() {
 				onToggleFullscreen(enabled);
 			}
 		},
-	});
-
-	// Set up callbacks for comment sync
-	sessionManager.setCommentSyncCallbacks({
 		onCommentsChanged: (comments) => {
 			commentStore.syncFromYjs(comments);
 		},
