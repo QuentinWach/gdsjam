@@ -213,7 +213,6 @@ function handleCanvasClick(event: MouseEvent | PointerEvent): void {
 		if (measurementController?.handleMeasurementCanvasClick(event)) {
 			return;
 		}
-
 		return;
 	}
 

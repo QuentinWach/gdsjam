@@ -43,9 +43,10 @@ export class ViewerMeasurementController {
 		}
 
 		const point = this.toWorldPoint(event.clientX, event.clientY, canvas, renderer);
+		const snappedPoint = this.maybeSnapToAxis(point, event.shiftKey);
 		this.callbacks.addMeasurementPoint(
-			point.worldX,
-			point.worldY,
+			snappedPoint.worldX,
+			snappedPoint.worldY,
 			this.callbacks.getDocumentUnits(),
 		);
 		return true;
@@ -119,9 +120,10 @@ export class ViewerMeasurementController {
 		if (!touch) return;
 
 		const point = this.toWorldPoint(touch.clientX, touch.clientY, canvas, renderer);
+		const snappedPoint = this.maybeSnapToAxis(point, event.shiftKey);
 		this.callbacks.addMeasurementPoint(
-			point.worldX,
-			point.worldY,
+			snappedPoint.worldX,
+			snappedPoint.worldY,
 			this.callbacks.getDocumentUnits(),
 		);
 		this.callbacks.setCursorWorldPos(null);
